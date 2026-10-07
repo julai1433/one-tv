@@ -415,7 +415,7 @@ def make_handler(app):
 
         def _tv_apk(self):
             """El archivo de la app (o, si esta computadora todavía no lo tiene, una página que lo dice en llano)."""
-            got = app.app_tv.actual()
+            got = app.app_tv.actual_o_buscar()
             if not got:
                 return self._send(200, pagina_sin_app().encode(), "text/html; charset=utf-8")
             return self._file(got["path"], TV_APP_TYPE,

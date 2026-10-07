@@ -359,6 +359,18 @@ class AppParaDownloader(unittest.TestCase):
         self.assertIsNone(a.actual())
         self.assertEqual(a.info()["hay"], False)
 
+    def test_si_la_piden_y_no_la_hay_pregunta_ya(self):
+        # Se publicó después de que arrancó el servidor: quien la pide con Downloader no espera a la revisión diaria.
+        a = AppTv(self.dir / "cache", None, abrir=self.abrir([self.version("tv-0.1.7")], apk_falso()), log=lambda m: None)
+        self.assertEqual(a.actual_o_buscar()["version"], "0.1.7")
+        self.pedidas.clear()
+        self.assertEqual(a.actual_o_buscar()["version"], "0.1.7")   # ya la tiene: no pregunta otra vez
+        self.assertEqual(self.pedidas, [])
+        b = AppTv(self.dir / "otra", None, abrir=self.abrir([], b""), log=lambda m: None)
+        self.assertIsNone(b.actual_o_buscar())
+        self.assertIsNone(b.actual_o_buscar())                       # sin app en GitHub: a lo mucho una vez cada 5 min
+        self.assertEqual(len([u for u in self.pedidas if "api.github.com" in u]), 1)
+
     def test_baja_la_tv_mas_nueva_de_github_una_sola_vez(self):
         versiones = [self.version("v2.0", "otra-cosa.zip"), self.version("tv-0.1.8", draft=True), self.version("tv-0.1.7"),
                      self.version("tv-0.1.6")]
@@ -390,6 +402,8 @@ class AppParaDownloader(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         app = Falso(tmp.name)
+        app.app_tv._abrir = self.abrir([], b"")   # sin internet en las pruebas: GitHub «no tiene» ninguna versión
+        app.app_tv.log = lambda m: None
         with mock.patch.object(cine.hostos, "lan_url", lambda port: f"http://192.0.2.5:{port}"):
             app.server_url = ""
             self.assertEqual(app.tv_app()["direccion"], "http://192.0.2.5:8765/tv")

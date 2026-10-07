@@ -18,6 +18,7 @@ PAGINA = f"https://github.com/{REPO}/releases"
 APK = "one-tv-tv.apk"        # nombre fijo del archivo en cada versión de GitHub
 DATOS = "one-tv-tv.json"     # {"version": "0.1.37", "version_code": 38}, junto al archivo
 CADA = 24 * 3600
+PEDIDA = 5 * 60   # si alguien pide la app y no la hay, se pregunta a GitHub ya (a lo mucho una vez cada 5 min)
 TIPO = "application/vnd.android.package-archive"
 UA = {"User-Agent": "one-tv (servidor de la casa)", "Accept": "application/vnd.github+json"}
 
@@ -28,6 +29,7 @@ class AppTv:
         self.compilada_dir = Path(compilada_dir) if compilada_dir else None
         self.log = log
         self._abrir = abrir
+        self._pedida = 0.0
 
     # ---------- cuál se ofrece ----------
 
@@ -63,6 +65,21 @@ class AppTv:
 
     def actual(self):
         return self.compilada() or self.descargada()
+
+    def actual_o_buscar(self):
+        """La app para entregarla ya. Si esta computadora todavía no la tiene (por ejemplo, se publicó después de que
+        arrancó el servidor), se le pregunta a GitHub en ese momento en lugar de esperar a la revisión de cada día."""
+        got = self.actual()
+        if got or time.time() - self._pedida < PEDIDA:
+            return got
+        self._pedida = time.time()
+        try:
+            msg = self.actualizar()
+            if msg:
+                self.log(msg)
+        except Exception as e:  # noqa: BLE001 - sin internet o GitHub no responde: la página lo dice en llano
+            self.log(f"⚠ App para Google TV: no se pudo bajar de GitHub ({e})")
+        return self.actual()
 
     def info(self):
         """Lo que se dice afuera (la web, la app de la TV): sin rutas de esta computadora."""
