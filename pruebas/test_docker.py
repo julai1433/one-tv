@@ -34,8 +34,9 @@ class Contenedor(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             d = correr(t, ONE_TV_CONTENEDOR="1", ONE_TV_DATOS=t)
             self.assertTrue(d["cont"])
-            self.assertEqual((d["home"], d["cache"], d["config"]), (t, f"{t}/cache", f"{t}/config.json"))
-            self.assertEqual(d["log"], f"{t}/registro.log")
+            T = Path(t)   # con Path: en Windows las rutas van con «\» (las pruebas corren también allá)
+            self.assertEqual((Path(d["home"]), Path(d["cache"]), Path(d["config"])), (T, T / "cache", T / "config.json"))
+            self.assertEqual(Path(d["log"]), T / "registro.log")
             self.assertEqual(d["guia"], "docs/INSTALAR-DOCKER.md")
             self.assertEqual(d["cfg"]["carpetas"], ["/biblioteca"])
             self.assertEqual(d["cfg"]["musica"], ["/musica"])

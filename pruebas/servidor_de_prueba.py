@@ -24,5 +24,7 @@ cine.App.keep_ytdlp_fresh = lambda self: None
 cine.App.warm_up = lambda self: None
 import intro; intro.IntroDetector.watch = lambda self, library: None   # la detección de entradas
 import subsync; subsync.SubtitleAligner.watch = lambda self, library: None   # ni la de subtítulos
+# ni los subtítulos que se bajan solos (escribirían junto a los videos de verdad y gastarían el cupo de OpenSubtitles)
+import subs_auto; subs_auto.AutoSubtitles.watch = lambda self: None
 os.environ["CINE_NO_BROWSER"] = "1"
 cine.run_server(background=True)

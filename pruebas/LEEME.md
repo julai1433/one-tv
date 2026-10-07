@@ -56,6 +56,10 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
   doblaje y prioridad baja) y muestra una tabla: inicio, fin, duración y confianza (cuántos compañeros
   coinciden). Solo lee los videos. Con `--detalle`, el tramo común de cada par de episodios. Con videos de
   series distintas sirve de control: no debe salir ningún tramo común. Al final dice cuánto tardó y su CPU.
+- `test_subtitulos_automaticos.py` — subtítulos que se bajan solos (`mac/subs_auto.py`) con un OpenSubtitles falso:
+  prioridades, reserva, cupo y su renovación, 406 y 429, lo que no existe todavía, lo que ya está, cuál se elige,
+  nombres de archivo y que el video no se toca; el cliente (`mac/subtitles_online.py`) contra un servidor falso en la
+  misma computadora y, con ffmpeg, que la biblioteca de verdad reconoce lo bajado. Sin red.
 - `test_subtitulos_alineados.py` — subtítulos aparte alineados solos con la voz (`mac/subsync.py`): leer y corregir
   .srt/.vtt, el trabajo en segundo plano (no repite, reintenta, guarda el alineado en la caché sin tocar el original)
   y lo que reciben la tele y la web. Con numpy (`CINE_PYTHON_NUMPY=/ruta/al/python`), además, audio sintético con

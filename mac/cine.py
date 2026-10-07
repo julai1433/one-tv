@@ -48,6 +48,7 @@ from organizer import Organizer
 from dubbing import Dubbing
 from intro import IntroDetector
 from subsync import SubtitleAligner
+from subs_auto import AutoSubtitles
 from playqueue import MAX_ITEMS, PlayQueue
 from ytaccount import YouTubeAccount, name_key
 from offline import Offline
@@ -215,6 +216,10 @@ class App:
         self.subsync = SubtitleAligner(self.dubbing, Path(__file__).resolve().parent / "subsync_voz.py",
                                        DATA / "subtitulos_alineados.json", CACHE / "subs-alineados", log=say)
         self.media.aligned = self.subsync.aligned
+        # Subtítulos que se bajan solos para toda la biblioteca, con el cupo diario de OpenSubtitles (mac/subs_auto.py).
+        self.auto_subs = AutoSubtitles(self.subs, self.library, DATA / "subtitulos_automaticos.json", cfg,
+                                       original_langs=self.metadata.original_langs, store=self.store,
+                                       organizer=self.organizer, aligner=self.subsync, log=say)
         self.iphone_url = None
         self._because = None   # {"at", "seeds", "data"} de «porque viste»
         self._because_busy = False
@@ -1401,7 +1406,8 @@ class App:
     def status(self):
         return {"roku": self.roku.ip if self.roku else None, "server": self.server_url,
                 "items": len(self.library.items), "iphone": self.iphone_url, "playing": self.playing(),
-                "queue": len(self.queue.items()), "dubbing": self.dubbing.current}
+                "queue": len(self.queue.items()), "dubbing": self.dubbing.current,
+                "auto_subs": self.auto_subs.status() if getattr(self, "auto_subs", None) else None}
 
     def warm_up(self):
         items = list(self.library.items.values())
@@ -1455,6 +1461,7 @@ def run_server(background):
     threading.Thread(target=app.warm_up, daemon=True).start()
     threading.Thread(target=app.intros.watch, args=(app.library,), daemon=True).start()   # «Saltar intro»
     threading.Thread(target=app.subsync.watch, args=(app.library,), daemon=True).start()   # subtítulos a tiempo
+    threading.Thread(target=app.auto_subs.watch, daemon=True).start()   # subtítulos que se bajan solos
     threading.Thread(target=app.watch_roku, daemon=True).start()
     threading.Thread(target=app.keep_ytdlp_fresh, daemon=True).start()
     threading.Thread(target=app.keep_library_fresh, daemon=True).start()

@@ -322,8 +322,10 @@ Para quitar la publicación: `tailscale serve --https=8766 off`.
 
 ### Opcional: subtítulos de OpenSubtitles
 
-Sirve para **buscar subtítulos por internet** desde la ficha de una película. Los que ya vienen dentro del video o
-junto a él funcionan sin esto.
+Sirve para **buscar subtítulos por internet** desde la ficha de una película y para que **se bajen solos**: con la
+clave puesta, la computadora baja cada día, sin que hagas nada, los subtítulos en español (de preferencia latino), en
+inglés y en el idioma original de lo que no es en español, empezando por lo que estás viendo. Los que ya vienen dentro
+del video o junto a él funcionan sin esto.
 
 1. Crea una cuenta gratis en <https://www.opensubtitles.com>.
 2. Entra a <https://www.opensubtitles.com/consumers>, crea una «consumer» (le pones cualquier nombre) y copia su
@@ -336,6 +338,16 @@ junto a él funcionan sin esto.
 
    Con solo la clave tienes 5 descargas al día. Si además pones tu `usuario` y `clave` (los de tu cuenta), 20.
 4. Corre `./cine` para aplicar.
+
+Las descargas automáticas usan cada día todo el cupo menos 2, que quedan para cuando busques uno a mano. Lo que van
+haciendo se ve en la web, junto al estado de la TV («subtítulos automáticos: 18 bajados hoy, faltan 240»). Para
+apagarlas, agrega `"automaticos": false` dentro de `"opensubtitles"` y corre `./cine`:
+
+```
+"opensubtitles": { "api_key": "TU_CLAVE", "usuario": "", "clave": "", "automaticos": false }
+```
+
+Cómo eligen el orden y cuál bajar: [DETALLES.md → Subtítulos](DETALLES.md#subtítulos).
 
 ### Opcional: YouTube y el Takeout de Google
 
@@ -449,7 +461,7 @@ admite comentarios, así que aquí se explica cada campo; el archivo `config.exa
 | `musica` | Opcional. Lista de carpetas con tu música ([Tu música](#opcional-tu-música)). Si falta, se usa `~/Music/Biblioteca` cuando existe; `[]` = sin la sección Música. |
 | `escuchar` | Opcional. En qué red escucha el servidor: vacío = toda la red de la casa (la TV lo necesita); `"127.0.0.1"` = solo esta computadora. No abras el puerto a internet (ver [DETALLES.md](DETALLES.md#seguridad)). |
 | `titulos` | Opcional. Nombres a mano por código de IMDb, para títulos que el Roku no puede dibujar (chino, japonés…). Ejemplo: `"titulos": { "tt0123456": "Nombre que quiero ver (2001)" }`. Vacío está bien. |
-| `opensubtitles` | Ver [Subtítulos de OpenSubtitles](#opcional-subtítulos-de-opensubtitles). |
+| `opensubtitles` | Ver [Subtítulos de OpenSubtitles](#opcional-subtítulos-de-opensubtitles). `"automaticos": false` apaga los subtítulos que se bajan solos (encendidos si hay clave). |
 | `descargas` | Opcional. Carpetas de descargas de torrents que el organizador vigila (por omisión, `~/Downloads/Torrents`). |
 | `sin_conexion` | Opcional. Carpeta donde se guardan los videos y listas de YouTube para verlos sin internet (por omisión `~/Movies/One TV/Sin conexión`). Cada video queda como un HLS (`<id>/index.m3u8`) que la TV y la web abren por las mismas direcciones de siempre. |
 | `sin_conexion_gb` | Opcional. Cuánto espacio como máximo ocupan esos videos (por omisión 100 GB). Si se llena, o si el disco queda con menos de 2 GB libres, la cola de descargas se detiene y avisa. |

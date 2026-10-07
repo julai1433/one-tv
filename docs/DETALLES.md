@@ -188,6 +188,37 @@ Los que son imagen (PGS, DVD) no se pueden mostrar.
   aparecen como «Español (Latino) · internet».
 - Cupo: 5 descargas al día solo con la clave; 20 si pones usuario y contraseña de tu cuenta gratis en `config.json`.
 
+**Solos, para toda la biblioteca** (`mac/subs_auto.py`): con la clave de OpenSubtitles puesta, la computadora baja
+sola los subtítulos que faltan, sin que pidas nada, y aprovecha el cupo de cada día:
+- **Qué:** cada película o capítulo que **no es en español** recibe subtítulos en **español** (de preferencia
+  latino), en **inglés** y, si su idioma original es otro, también en **ese idioma** (una película japonesa: español,
+  inglés y japonés). El idioma original sale de Wikidata (el mismo dato que marca la pista «(original)»); si no se
+  sabe, el del audio principal.
+- **Lo que ya tiene no se baja:** los subtítulos que vienen dentro del video y los que la biblioteca ya muestra en ese
+  idioma. No cuentan los que son imagen (no se pueden mostrar) ni los forzados (solo traducen partes).
+- **En qué orden:** primero todos los que faltan en español, después en inglés, después en el idioma original. En cada
+  idioma, primero lo que se está viendo, lo de «Seguir viendo» y los 5 capítulos que siguen de esa serie; luego lo
+  agregado en el último mes; luego lo demás, de lo más nuevo a lo más viejo.
+- **Cuánto:** lee el cupo real de tu cuenta (al entrar dice cuántas descargas permite al día; cada descarga dice
+  cuántas quedan y cuándo se renueva) y las gasta todas cada día **menos 2**, que quedan para cuando pidas uno a mano.
+  Va despacio (la API acepta 5 consultas por segundo) y, si pide esperar o dice que se acabó el cupo, espera lo que
+  diga. Cuando se acaba, sigue sola al renovarse.
+- **Cuál elige:** primero el hecho para tu misma copia (la «huella» del archivo); si no hay, busca por el código de
+  IMDb de la película o de la serie (el de la serie sale de su código de TheTVDB, por Wikidata) con temporada y
+  capítulo. Entre varios: los hechos por personas, el latino, el que más se parece a la copia que tienes (BluRay,
+  WEB-DL, el grupo que la publicó: usa también el nombre con que se bajó, que guarda el organizador) y el más
+  descargado. Lo bajado se alinea solo con la voz (ver abajo).
+- **Memoria:** `datos/subtitulos_automaticos.json` guarda qué se bajó, qué todavía no existe en OpenSubtitles (se
+  vuelve a buscar en una semana, en dos días si es un estreno o se agregó hace poco, y cada vez espera el doble, hasta un
+  mes), el cupo y cuántos se bajaron cada día. Si borras uno que bajó, no lo vuelve a bajar.
+- **Cuándo:** 5 minutos después de arrancar y luego cada hora (o al renovarse el cupo), en un hilo aparte. Al final de
+  cada tanda deja en el registro un resumen: «✓ Subtítulos automáticos: 18 bajados hoy (12 en español, 6 en inglés);
+  faltan 240; …; siguen mañana a las 18:00». En la web, junto al estado de la TV: «subtítulos automáticos: 18 bajados
+  hoy, faltan 240» (y en `/api/status` → `auto_subs`).
+- **Apagarlo:** en `config.json`, `"opensubtitles": { …, "automaticos": false }`. Sin clave de OpenSubtitles no hace
+  nada (lo dice una vez en el registro).
+- El video nunca se toca y nunca se reemplaza un subtítulo que ya estaba (si el nombre está ocupado, se agrega «-2»).
+
 **A tiempo, solos:** los subtítulos que no vienen dentro del video (los de internet y los `.srt`/`.vtt` que pones
 junto al video) muchas veces son de otra versión y quedan corridos. One TV los alinea con la voz sin que hagas nada:
 - Escucha dónde hay voz en el audio (en 5.1, el canal central) y la compara con cuándo hay una línea en pantalla

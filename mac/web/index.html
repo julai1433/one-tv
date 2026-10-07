@@ -4585,7 +4585,7 @@ async function poll() {
   if (document.visibilityState !== "visible") return;
   try {
     const s = await getJSON("/api/status");
-    setTv(s.roku ? "ok" : "off", [plural(s.items, "video", "videos") + " en la biblioteca", s.dubbing ? `preparando el doblaje de «${s.dubbing}»` : ""]
+    setTv(s.roku ? "ok" : "off", [plural(s.items, "video", "videos") + " en la biblioteca", s.dubbing ? `preparando el doblaje de «${s.dubbing}»` : "", s.auto_subs?.text || ""]
       .filter(Boolean).join(" · "));
     if (lib && dubbingWas && !s.dubbing) loadLibrary();   // terminó un doblaje: la ficha ya trae la pista
     dubbingWas = s.dubbing;

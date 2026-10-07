@@ -25,7 +25,8 @@ lo que se ve es tuyo (One TV no trae ni descarga contenido).
 - Doblaje latino automático: si llega otra versión de algo que ya tienes con audio en español latino, se le agrega a
   la tuya como una pista más, sincronizada.
 - «Saltar intro» en las series (se detecta comparando el audio de los episodios) y subtítulos de internet, que se
-  alinean solos con la voz si son de otra versión.
+  bajan solos (español, inglés y el idioma original, aprovechando el cupo diario) y se alinean solos con la voz si
+  son de otra versión.
 
 **YouTube, sin anuncios**
 - Busca, ve canales y listas; con tu propia copia de datos de Google (Takeout) aparecen tus suscripciones, tus
