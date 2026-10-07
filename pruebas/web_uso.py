@@ -383,6 +383,72 @@ try:
         viewport(1280); time.sleep(0.3)
         api("/api/queue/clear", {})
 
+    # ---------- la música que suena en la TV se controla desde la web ----------
+    if part("musica_tv"):
+        tracks = list(api("/api/music")["tracks"].values())
+        t = tracks[0]
+        tid = "track:" + t["id"]
+        before_hist = len(api("/api/library")["history"])
+        before_watch = len(api("/api/library")["watching"])
+
+        def tv(i, n, p=42, state="play", ev="tick"):   # lo que reportaría la TV
+            api("/api/progress", {"id": tid, "p": p, "d": t["duration"] or 200, "ev": ev, "state": state, "song": {"i": i, "n": n}})
+            js("poll(); true"); time.sleep(0.8)
+
+        viewport(1280); go("#musica", 1.5)
+        check(js("document.getElementById('mini').hidden") is True, "sin música en la TV no hay barra «En la TV»")
+        tv(1, 3)
+        check(js("document.getElementById('mini').hidden") is False, "suena música en la TV: aparece la barra de abajo")
+        check(js("document.getElementById('mini-title').textContent") == f"{t['title']} · {t['artist']}", "la barra dice título · artista")
+        check(js("document.getElementById('mini-img').src").endswith(t["art"]), "la barra muestra la portada del álbum")
+        check("reproduciendo" in js("document.getElementById('mini-state').textContent"), "la barra dice «reproduciendo»")
+        shot("17_musica_tv_barra_1280.png")
+        click("document.getElementById('mini')", 1.2)
+        check(js("document.getElementById('remote').open") is True, "tocar la barra abre el panel «En la TV»")
+        check(js("document.getElementById('rm-title').textContent") == f"{t['title']} · {t['artist']}", "el panel dice título · artista")
+        check(js("document.getElementById('np-prev-box').hidden") is False and js("document.getElementById('np-next-box').hidden") is False,
+              "el panel ofrece canción anterior y siguiente")
+        check(js("document.querySelectorAll('.np-jump:not([hidden])').length") == 0, "con música no salen −10 s / +30 s")
+        check(js("document.getElementById('np-prev').disabled") is False and js("document.getElementById('np-next').disabled") is False,
+              "en medio de la lista, ambos botones sirven")
+        check(js("document.getElementById('np-here').hidden") is True, "con música no sale «Traer aquí»")
+        check(js("(() => { const r = document.getElementById('rm-img').getBoundingClientRect(); return Math.abs(r.width - r.height) < 2 && r.width > 60; })()") is True,
+              "la portada del álbum sale cuadrada y entera")
+        check(js("document.getElementById('np-tracks').hidden") is True, "sin audio ni subtítulos que elegir")
+        check(js("+document.getElementById('np-seek').max") >= 1 and js("document.getElementById('np-cur').textContent").startswith("0:4"),
+              "la barra de avance muestra por dónde va (0:42 y unos segundos)")
+        shot("18_musica_tv_panel_1280.png")
+        js("window.__calls = []; const f = window.fetch; window.fetch = (u, o) => { __calls.push([String(u), o && o.body]); return f(u, o); }; true")
+        click("document.getElementById('np-next')", 0.6)
+        click("document.getElementById('np-prev')", 0.6)
+        calls = js("__calls.filter(c => c[0].includes('/api/music/step')).map(c => JSON.parse(c[1]).dir)")
+        check(calls == [1, -1], f"siguiente manda dir=1 y anterior dir=-1 ({calls})")
+        js("(() => { const s = document.getElementById('np-seek'); s.value = 120; s.dispatchEvent(new Event('input')); s.dispatchEvent(new Event('change')); })(); true"); time.sleep(0.5)
+        check(js("__calls.some(c => c[0].includes('/api/seek') && JSON.parse(c[1]).t === 120)"), "tocar la barra de avance manda adelantar a ese segundo")
+        click("document.getElementById('np-play')", 0.4)
+        check(js("__calls.some(c => c[0].includes('/api/key') && JSON.parse(c[1]).key === 'Play')"), "pausa/seguir manda la tecla Play")
+        tv(0, 3, state="pause")
+        check(js("document.getElementById('np-prev').disabled") is True and js("document.getElementById('np-next').disabled") is False,
+              "en la primera canción no hay anterior")
+        check(js("document.getElementById('np-play-label').textContent") == "Seguir", "en pausa dice «Seguir»")
+        tv(2, 3)
+        check(js("document.getElementById('np-prev').disabled") is False and js("document.getElementById('np-next').disabled") is True,
+              "en la última no hay siguiente")
+        viewport(390); time.sleep(0.6)
+        shot("19_musica_tv_panel_390.png")
+        check(js("document.documentElement.scrollWidth <= innerWidth") is True, "el panel a 390 px sin desplazamiento de lado")
+        click("document.getElementById('rm-close')", 1.0)
+        shot("20_musica_tv_barra_390.png")
+        check(js("document.getElementById('mini').hidden") is False, "a 390 px la barra sigue a la vista")
+        check(len(api("/api/library")["history"]) == before_hist and len(api("/api/library")["watching"]) == before_watch,
+              "la música no entra a «Seguir viendo» ni al historial")
+        # una película en la TV conserva sus controles de video
+        # terminó la lista: la barra se va
+        api("/api/progress", {"id": tid, "p": 190, "d": 200, "ev": "end"})
+        js("poll(); true"); time.sleep(1.0)
+        check(js("document.getElementById('mini').hidden") is True, "al terminar la lista la barra desaparece")
+        viewport(1280); time.sleep(0.3)
+
     # ---------- «Ver con otro» archivado ----------
     if part("archivado"):
         check(js("document.getElementById('pl-multi').hidden") is True, "«Ver con otro» no se ofrece (archivado)")

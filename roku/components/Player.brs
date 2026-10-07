@@ -9,6 +9,8 @@ sub init()
     m.upNextGroup = m.top.findNode("upNextGroup")
     m.upNextTimer = m.top.findNode("upNextTimer")
     m.stallTimer = m.top.findNode("stallTimer")
+    m.endTimer = m.top.findNode("endTimer")
+    m.endAt = -1
     m.statusNote = m.top.findNode("statusNote")
     m.multiHint = m.top.findNode("multiHint")
     m.checkTask = invalid
@@ -155,6 +157,7 @@ sub init()
     m.tick.observeField("fire", "onTick")
     m.upNextTimer.observeField("fire", "onUpNextTick")
     m.stallTimer.observeField("fire", "onStall")
+    m.endTimer.observeField("fire", "onEndWatch")
     m.statusNote.font = makeFont(32)
     m.statusNote.color = m.t.muted
     note = m.top.findNode("upNextNote")
@@ -169,9 +172,13 @@ sub onRequest()
     r = m.top.request
     if r = invalid or r.url = invalid then return
     ' Si ya se veía otra cosa, se guarda dónde quedó.
-    if m.req <> invalid and m.top.visible and not m.finished and m.startedPlaying then report("stop", false)
+    ' (De una canción a la siguiente no: la computadora entendería que se dejó de escuchar y quitaría el control de la web.)
+    changing = m.req <> invalid and m.req.music = true and r.music = true
+    if m.req <> invalid and m.top.visible and not m.finished and m.startedPlaying and not changing then report("stop", false)
     m.req = r
     m.finished = false
+    m.endTimer.control = "stop"
+    m.endAt = -1
     m.appPaused = false
     hideNotice()
     m.upNextTimer.control = "stop"
@@ -268,6 +275,9 @@ sub startContent(content as Object)
     showMusic(r)
     if r.music = true
         showOsd()   ' con música la barra se queda: no hay video que tapar
+        ' La computadora se entera de qué suena (para su barra «En la TV» y su control), pero no guarda avance.
+        report("start", false)
+        m.tick.control = "start"
         return
     end if
     if r.live <> true then loadMarks(r.id)
@@ -485,15 +495,46 @@ sub onVideoState()
         stopPlayback(false)
         m.top.event = {type: "error", message: message, title: m.req.title}
     else if state = "finished"
-        m.finished = true
-        report("end", true)
-        m.tick.control = "stop"
-        hideNotice()
-        hideOsd()
-        closePanel()
-        m.video.control = "stop"
-        m.top.event = {type: "finished"}
+        finishPlayback()
     end if
+end sub
+
+' Terminó lo que se veía o escuchaba: se avisa y la escena sigue con lo siguiente (canción, episodio o la fila).
+sub finishPlayback()
+    if m.finished then return
+    m.finished = true
+    m.endTimer.control = "stop"
+    ' Entre canciones no se avisa el final: solo al terminar la última (o la lista) la computadora quita su barra.
+    if m.req.music <> true or m.req.last = true then report("end", true)
+    m.tick.control = "stop"
+    hideNotice()
+    hideOsd()
+    closePanel()
+    m.video.control = "stop"
+    m.top.event = {type: "finished"}
+end sub
+
+' Algunas canciones (AAC convertido desde FLAC) se quedan a décimas del final sin que el reproductor avise que
+' terminaron: la TV se quedaba ahí para siempre, en silencio, sin pasar a la siguiente. A menos de 2 s del final, si
+' en 2 s el avance no se movió (y no está en pausa), se da por terminado.
+sub onEndWatch()
+    duration = m.video.duration
+    at = m.video.position
+    if m.finished or m.req = invalid or not m.top.visible or duration <= 0 or at < duration - 2
+        m.endTimer.control = "stop"
+        m.endAt = -1
+        return
+    end if
+    if m.video.state = "paused"
+        m.endAt = -1
+        return
+    end if
+    if m.endAt >= 0 and Abs(at - m.endAt) < 0.05
+        m.endAt = -1
+        finishPlayback()
+        return
+    end if
+    m.endAt = at
 end sub
 
 sub onTick()
@@ -520,6 +561,7 @@ sub stopPlayback(withReport as Boolean)
     m.upNextTimer.control = "stop"
     m.upNextAnim.control = "stop"
     m.stallTimer.control = "stop"
+    m.endTimer.control = "stop"
     m.statusNote.visible = false
     m.pendingContent = invalid
     m.checkTask = invalid
@@ -554,6 +596,7 @@ sub report(ev as String, notify as Boolean)
     end if
     body = {id: r.id, p: atSecond, d: duration, ev: ev, audio: audio, state: state, device_id: m.top.deviceId}
     body["sub"] = subIndex
+    if r.music = true and r.songCount <> invalid then body.song = {i: r.songIndex, n: r.songCount}
     task = CreateObject("roSGNode", "ApiTask")
     task.url = m.top.server + "/api/progress"
     task.body = FormatJson(body)
@@ -574,6 +617,7 @@ end sub
 sub onPosition()
     at = m.video.position
     m.top.position = at
+    if not m.finished and m.video.duration > 0 and at >= m.video.duration - 2 then m.endTimer.control = "start"
     trackChapter(at)
     if m.osd.visible then paintOsd()
     if m.panel.open then panelStatus()
@@ -1055,12 +1099,15 @@ sub paintOsd()
     if i >= 0 then text = "Capítulo " + (i + 1).ToStr() + " de " + m.chapters.Count().ToStr() + "   ·   " + m.chapters[i].title
     if m.osdNote <> invalid and m.osdNote <> "" then text = m.osdNote
     m.osdChapter.text = text
+    ok = "OK: pausa"
+    if paused then ok = "OK: seguir"
+    rest = ok + "   ·   abajo: más opciones   ·   arriba: ocultar"
     if live
-        m.osdHint.text = "OK: pausa   ·   abajo: más opciones   ·   arriba: ocultar"
+        m.osdHint.text = rest
     else if m.chapters.Count() > 0
-        m.osdHint.text = "‹ ›: capítulo anterior o siguiente   ·   OK: pausa   ·   abajo: más opciones   ·   arriba: ocultar"
+        m.osdHint.text = "‹ ›: capítulo anterior o siguiente   ·   " + rest
     else
-        m.osdHint.text = "‹ ›: moverte en la barra   ·   OK: pausa   ·   abajo: más opciones   ·   arriba: ocultar"
+        m.osdHint.text = "‹ ›: moverte en la barra   ·   " + rest
     end if
 end sub
 

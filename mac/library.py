@@ -13,6 +13,8 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import hostos
+
 VIDEO_EXTS = {".mp4", ".m4v", ".mov", ".mkv", ".avi", ".wmv", ".mpg", ".mpeg",
               ".ts", ".m2ts", ".webm", ".flv", ".divx", ".3gp", ".ogm"}
 SUB_EXTS = {".srt", ".vtt"}
@@ -468,7 +470,8 @@ class Library:
                 continue
             except PermissionError:
                 self.warnings.append(f"macOS no deja leer {root} (mueve los videos a ~/Movies "
-                                     "o da «Acceso total al disco» a python3 en Ajustes → Privacidad)")
+                                     "o da «Acceso total al disco» a python3 en Ajustes → Privacidad)" if hostos.MAC
+                                     else f"tu usuario no tiene permiso para leer {root}")
                 continue
             for dirpath, dirnames, filenames in os.walk(root):
                 dirnames[:] = [d for d in dirnames

@@ -290,7 +290,9 @@ class Reinicio(Base):
 
     def test_carpeta_y_limite_por_omision(self):
         off = Offline(None, None, self.root / "s.json", self.yt, ytdlp="/nada")
-        self.assertEqual(off.folder, Path.home() / "Movies" / "One TV" / "Sin conexión")
+        # ~/Movies en macOS; en Linux, la carpeta de videos del usuario (~/Vídeos, ~/Videos…: mac/hostos.py)
+        videos = Path.home() / "Movies" if sys.platform == "darwin" else offline.hostos.user_dir("VIDEOS")
+        self.assertEqual(off.folder, videos / "One TV" / "Sin conexión")
         self.assertEqual(off.limit, 100 * GB)
 
 

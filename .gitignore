@@ -25,3 +25,11 @@ pruebas/salidas/
 .idea/
 .env
 .bsc-staging/
+
+# App de Android TV (androidtv/): lo que arma Gradle y la ruta local del SDK (tiene el usuario de la computadora)
+androidtv/.gradle/
+androidtv/.kotlin/
+androidtv/build/
+androidtv/app/build/
+androidtv/local.properties
+*.apk

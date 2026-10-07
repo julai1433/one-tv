@@ -20,10 +20,11 @@ import threading
 import time
 from pathlib import Path
 
+import hostos
 from youtube import GONE, VIDEO_ID, YT_LANG, YouTubeError, find_ytdlp, info_from
 from ytdurations import BLOCK_FOR
 
-DEFAULT_FOLDER = "~/Movies/One TV/Sin conexión"
+DEFAULT_FOLDER = hostos.tilde(hostos.user_dir("VIDEOS") / "One TV" / "Sin conexión")   # en macOS, ~/Movies/…
 DEFAULT_LIMIT_GB = 100
 GB = 1024 ** 3
 MIN_FREE = 2 * GB                 # el disco no se llena del todo por guardar videos

@@ -23,6 +23,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import hostos
 from library import EPISODE_RE, SKIP_DIRS, SUB_EXTS, VIDEO_EXTS, YEAR_RE, _nfc, clean_title
 
 MIN_SIZE = 60 * 1024 * 1024     # lo más chico suele ser una muestra (sample)
@@ -43,8 +44,11 @@ def _get_json(url):
 
 
 def safe_name(text):
-    """Nombre válido para una carpeta de macOS (sin «/» ni «:»)."""
+    """Nombre válido para una carpeta de macOS (sin «/» ni «:»). En Windows tampoco van \\ " < > | (y no puede
+    terminar en punto ni en espacio, que ya se quitan)."""
     text = _nfc(text).replace("/", "-").replace(":", " -").replace("?", "").replace("*", "")
+    if hostos.WINDOWS:
+        text = text.replace("\\", "-").replace('"', "'").replace("<", "").replace(">", "").replace("|", "-")
     return re.sub(r"\s+", " ", text).strip(" .")
 
 
@@ -268,7 +272,10 @@ class Organizer:
             os.link(src, dest)   # el mismo archivo con otro nombre: Transmission lo sigue compartiendo
         except OSError:
             shutil.move(str(src), str(dest))   # otro disco: se mueve y queda un acceso en su lugar
-            os.symlink(dest, src)
+            try:
+                os.symlink(dest, src)
+            except OSError:   # Windows sin permiso para crear accesos: el archivo queda movido a la biblioteca
+                pass
 
     def run(self, dry_run=False):
         """Ordena lo pendiente. Devuelve la lista de lo hecho (o, en prueba, lo que haría)."""

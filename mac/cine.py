@@ -7,8 +7,8 @@ Uso:
     ./cine quitar-autoarranque  deja de arrancar solo
     ./cine estado               dice si está corriendo y en qué direcciones
     ./cine tailscale            publica la página en tu red Tailscale con https (para el iPhone)
-    ./cine barra                pone el ícono en la barra de menú (y lo actualiza)
-    ./cine quitar-barra         quita el ícono de la barra de menú
+    ./cine barra                pone el ícono en la barra de menú (y lo actualiza; solo macOS)
+    ./cine quitar-barra         quita el ícono de la barra de menú (solo macOS)
     ./cine instalar             solo instala/actualiza la app en el Roku
     ./cine catalogo             lista los videos y cómo llega cada uno a la TV
 """
@@ -27,10 +27,13 @@ import sys
 import threading
 import time
 import urllib.request
-import webbrowser
 from datetime import datetime
 from pathlib import Path
 
+import encoders
+import hostos
+import linuxservice
+import windowsservice
 from library import Library
 from roku import Roku, build_channel_zip, discover, local_ip_towards
 from server import KeepAwake, Media, serve
@@ -44,6 +47,7 @@ from metadata import Metadata
 from organizer import Organizer
 from dubbing import Dubbing
 from intro import IntroDetector
+from subsync import SubtitleAligner
 from playqueue import MAX_ITEMS, PlayQueue
 from ytaccount import YouTubeAccount, name_key
 from offline import Offline
@@ -55,17 +59,18 @@ from music import Music, default_roots
 
 PROJECT = Path(__file__).resolve().parent.parent
 CONFIG = PROJECT / "config.json"
-CACHE = Path.home() / "Library" / "Caches" / "cine-roku"
+# Carpetas: en macOS ~/Library/…; en Linux las de XDG (~/.cache, ~/.local/share, ~/.local/state). Ver mac/hostos.py.
+CACHE = hostos.CACHE
 
 SERVICE_LABEL = "local.cine-roku"
-SERVICE_HOME = Path.home() / "Library" / "Application Support" / "cine-roku"
-SERVICE_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"
-SERVICE_LOG = Path.home() / "Library" / "Logs" / "cine-roku.log"
+SERVICE_HOME = hostos.SERVICE_HOME
+SERVICE_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"   # macOS (en Linux: linuxservice)
+SERVICE_LOG = hostos.LOG
 DATA = SERVICE_HOME / "datos"   # progreso y preferencias: sobrevive a actualizaciones
 # yt-dlp propio del servicio, en un entorno aislado: se actualiza solo sin tocar Homebrew
 # (actualizar el Python de Homebrew le quita a macOS el permiso de «Red local» que el servidor necesita).
 YTDLP_ENV = SERVICE_HOME / "ytdlp"
-YTDLP = YTDLP_ENV / "bin" / "yt-dlp"
+YTDLP = hostos.venv_bin(YTDLP_ENV, "yt-dlp")   # en Windows, Scripts\yt-dlp.exe
 YTDLP_EVERY = 24 * 3600
 # Doblajes: la sincronización necesita numpy, en su propio entorno (se instala solo la primera vez).
 DUB_ENV = SERVICE_HOME / "doblaje"
@@ -96,9 +101,9 @@ def say(msg):
 
 
 def load_config():
-    cfg = {"carpetas": ["~/Movies/Biblioteca"], "puerto": 8765, "roku_ip": "", "roku_password": "", "titulos": {}}
+    cfg = {"carpetas": [hostos.default_library()], "puerto": 8765, "roku_ip": "", "roku_password": "", "titulos": {}}
     try:
-        cfg.update(json.loads(CONFIG.read_text()))
+        cfg.update(json.loads(CONFIG.read_text(encoding="utf-8-sig")))   # (el Bloc de notas de Windows puede ponerle BOM)
     except FileNotFoundError:
         pass
     except json.JSONDecodeError as e:
@@ -182,17 +187,22 @@ class App:
         # Favoritos y listas de One TV (y lo cambiado en las del Takeout): viven en la computadora (mac/mylists.py).
         self.lists = MyLists(DATA / "listas.json")
         self.queue.decorate = self._queue_with_durations
-        self.account = YouTubeAccount(DATA, Path.home() / "Downloads", log=say)
+        self.account = YouTubeAccount(DATA, hostos.user_dir("DOWNLOAD"), log=say)
         self.account.durations = self.durations
         downloads = cfg.get("descargas")
         if downloads is None:   # por omisión, la carpeta de torrents de Transmission si existe
-            default = Path.home() / "Downloads" / "Torrents"
+            default = hostos.user_dir("DOWNLOAD") / "Torrents"
             downloads = [str(default)] if default.is_dir() else []
         self.organizer = Organizer(cfg["carpetas"], downloads, DATA / "organizador.json", log=say)
         self._organize_lock = threading.Lock()
         self.dubbing = Dubbing(DUB_ENV, Path(__file__).resolve().parent / "dubsync.py", DATA / "doblajes.json",
-                               Path.home() / "Movies" / "Doblajes ya usados", log=say, on_added=self.dub_added)
+                               hostos.user_dir("VIDEOS") / "Doblajes ya usados", log=say, on_added=self.dub_added)
         self.intros = IntroDetector(self.dubbing, Path(__file__).resolve().parent / "introsync.py", DATA / "intros.json", log=say)
+        # Subtítulos aparte (bajados o junto al video) alineados solos con la voz; la tele y la web reciben el
+        # alineado (el original no se toca).
+        self.subsync = SubtitleAligner(self.dubbing, Path(__file__).resolve().parent / "subsync_voz.py",
+                                       DATA / "subtitulos_alineados.json", CACHE / "subs-alineados", log=say)
+        self.media.aligned = self.subsync.aligned
         self.iphone_url = None
         self._because = None   # {"at", "seeds", "data"} de «porque viste»
         self._because_busy = False
@@ -1254,6 +1264,8 @@ class App:
             return {"ok": False, "error": str(e)}
         say(f"✓ Subtítulos descargados: {saved.name}")
         self.library.scan(force=True)
+        if getattr(self, "subsync", None):
+            self.subsync.notify()   # que se alinee con la voz ya, sin esperar la vuelta
         item = self.library.get(item_id)
         index = next((i for i, s in enumerate(item["subs"]) if s.get("file") == str(saved)), -1)
         return {"ok": True, "sub": index, "item": self.library.public_item(item), "remaining": remaining}
@@ -1320,6 +1332,26 @@ class App:
         now = self.store.now_playing()
         if not now:
             return None
+        if now["id"].startswith("track:"):   # música: título · artista, portada del álbum y anterior / siguiente
+            t = self.music.track(now["id"][6:])
+            if not t:
+                return None
+            live = self._player_state()
+            state, position, duration = now["state"], now["p"], now["d"] or t.get("duration") or 0
+            if live:
+                if live[0] in ("close", "stop", ""):
+                    return None
+                state = {"play": "play", "pause": "pause"}.get(live[0], "buffer")
+                position = live[1] if live[1] is not None else position
+                duration = live[2] or duration
+            song = now.get("song") or {}
+            i, n = song.get("i"), song.get("n")
+            return {"id": now["id"], "kind": "music", "title": f"{t['title']} · {t['artist']}", "name": t["title"],
+                    "artist": t["artist"], "album": t["album"], "poster": f"/music/art/{t['album_id']}.jpg",
+                    "state": state, "position": round(position, 1), "duration": round(duration, 1), "mark": None,
+                    "audio": None, "sub": None, "audios": [], "subs": [],
+                    "index": i, "count": n, "prev": i is not None and i > 0,
+                    "next": i is not None and n is not None and i < n - 1}
         if now["id"].startswith("yt:"):   # YouTube: sin pistas que elegir
             vid = now["id"][3:]
             item = {"id": now["id"], "full_title": self.youtube.title_of(vid) or "YouTube", "duration": 0}
@@ -1378,6 +1410,7 @@ def run_server(background):
     cfg = load_config()
     app = App(cfg)
     CACHE.mkdir(parents=True, exist_ok=True)
+    encoders.detect(cfg.get("codificador"), log=say)   # con qué se convierte el video (en la Mac, su chip)
     app.transcoder = Transcoder(CACHE)
     atexit.register(app.transcoder.shutdown)
     # El mosaico lee YouTube y los canales en vivo por las rutas de este mismo servidor.
@@ -1405,10 +1438,11 @@ def run_server(background):
             say(f"✗ El puerto {cfg['puerto']} está ocupado; reintento en 30 s.")
             time.sleep(30)
             sys.exit(1)
-        sys.exit(f"✗ El puerto {cfg['puerto']} está ocupado. ¿Ya tienes ./cine abierto en otra ventana?")
+        sys.exit(f"✗ El puerto {cfg['puerto']} está ocupado. ¿Ya tienes {hostos.CINE} abierto en otra ventana?")
     app.iphone_url = tailscale_url(cfg["puerto"])
     threading.Thread(target=app.warm_up, daemon=True).start()
     threading.Thread(target=app.intros.watch, args=(app.library,), daemon=True).start()   # «Saltar intro»
+    threading.Thread(target=app.subsync.watch, args=(app.library,), daemon=True).start()   # subtítulos a tiempo
     threading.Thread(target=app.watch_roku, daemon=True).start()
     threading.Thread(target=app.keep_ytdlp_fresh, daemon=True).start()
     threading.Thread(target=app.keep_library_fresh, daemon=True).start()
@@ -1423,6 +1457,9 @@ def run_server(background):
     else:
         ts = tailscale_url(cfg["puerto"])
         local = app.server_url or f"http://localhost:{cfg['puerto']}"
+        lan = None if hostos.MAC or app.server_url else hostos.lan_url(cfg["puerto"])
+        if lan:   # Linux sin el Roku todavía: la dirección para entrar desde otro aparato
+            local += f"\n  Desde otro aparato:   {lan}"
         print(f"""
 ──────────────────────────────────────────────
   Listo. En la TV: abre la app «One TV».
@@ -1434,20 +1471,29 @@ def run_server(background):
   Para apagar: Ctrl+C
 ──────────────────────────────────────────────""", flush=True)
         if os.environ.get("CINE_NO_BROWSER") != "1":
-            webbrowser.open(f"http://localhost:{cfg['puerto']}")
+            hostos.open_browser(f"http://localhost:{cfg['puerto']}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nApagando…")
 
 
-# ---------- arranque automático (launchd) ----------
+# ---------- arranque automático (macOS: launchd; Linux: systemd del usuario, ver mac/linuxservice.py; Windows: el
+# Programador de tareas, ver mac/windowsservice.py) ----------
 
 def _launchctl(*args):
     return subprocess.run(["launchctl", *args], capture_output=True, text=True)
 
 
+def service_installed():
+    if hostos.WINDOWS:
+        return windowsservice.installed()
+    return SERVICE_PLIST.exists() if hostos.MAC else linuxservice.UNIT.exists()
+
+
 def service_pid():
+    if not hostos.MAC:
+        return _service().pid()
     out = _launchctl("print", f"gui/{os.getuid()}/{SERVICE_LABEL}").stdout
     for line in out.splitlines():
         line = line.strip()
@@ -1465,9 +1511,10 @@ def _same_tree(a, b):
 
 
 def sync_service_files():
-    """Copia el programa a ~/Library/Application Support (macOS no deja a los servicios leer Documentos)."""
+    """Copia el programa a ~/Library/Application Support (macOS no deja a los servicios leer Documentos); en Linux, a
+    ~/.local/share/cine-roku (así el servicio corre la versión que se probó con ./cine, aunque cambies el repo)."""
     if not CONFIG.exists():
-        sys.exit("✗ Todavía no hay config.json. Corre  ./cine configurar  para crearlo.")
+        sys.exit(f"✗ Todavía no hay config.json. Corre  {hostos.CINE} configurar  para crearlo.")
     changed = False
     SERVICE_HOME.mkdir(parents=True, exist_ok=True)
     for sub in ("mac", "roku"):
@@ -1483,7 +1530,11 @@ def sync_service_files():
 
 
 def write_plist():
+    if hostos.WINDOWS:   # la tarea del Programador de tareas (con el Python que corre esto: «python3» puede no existir)
+        return windowsservice.write(sys.executable, SERVICE_HOME, SERVICE_LOG)
     python = shutil.which("python3") or sys.executable
+    if not hostos.MAC:   # Linux: la unidad de systemd
+        return linuxservice.write(python, SERVICE_HOME / "mac" / "cine.py", SERVICE_HOME, SERVICE_LOG)
     SERVICE_PLIST.parent.mkdir(parents=True, exist_ok=True)
     SERVICE_LOG.parent.mkdir(parents=True, exist_ok=True)
     plist = {
@@ -1546,7 +1597,7 @@ def update_ytdlp():
     if not before:
         shutil.rmtree(YTDLP_ENV, ignore_errors=True)
         subprocess.run([sys.executable, "-m", "venv", str(YTDLP_ENV)], check=True, capture_output=True, timeout=300)
-    r = subprocess.run([str(YTDLP_ENV / "bin" / "pip"), "install", "-q", "-U", "yt-dlp[default]"],
+    r = subprocess.run([str(hostos.venv_bin(YTDLP_ENV, "pip")), "install", "-q", "-U", "yt-dlp[default]"],
                        capture_output=True, text=True, timeout=600, stdin=subprocess.DEVNULL)
     after = _ytdlp_version()
     if not after:
@@ -1576,7 +1627,11 @@ def wait_for_server(port, seconds=40):
 
 def install_service(cfg):
     if server_answers(cfg["puerto"]) and not service_pid():
-        sys.exit("✗ Ya hay un ./cine abierto en otra ventana. Ciérralo con Ctrl+C y vuelve a intentar.")
+        sys.exit(f"✗ Ya hay un {hostos.CINE} abierto en otra ventana. Ciérralo con Ctrl+C y vuelve a intentar.")
+    if hostos.WINDOWS:
+        return install_windows_service()
+    if not hostos.MAC:
+        return install_linux_service()
     sync_service_files()
     write_plist()
     _launchctl("bootout", f"gui/{os.getuid()}/{SERVICE_LABEL}")
@@ -1587,10 +1642,57 @@ def install_service(cfg):
         sys.exit(f"✗ macOS no aceptó el servicio: {r.stderr.strip()}")
 
 
+def _service():
+    """El arranque automático de este sistema fuera de macOS (los dos tienen problem, start, restart, pid y remove)."""
+    return windowsservice if hostos.WINDOWS else linuxservice
+
+
+def install_windows_service():
+    problem = windowsservice.problem()
+    if problem:
+        sys.exit(f"✗ {problem}")
+    sync_service_files()
+    write_plist()
+    error = windowsservice.start()
+    if error:
+        sys.exit(f"✗ Windows no aceptó la tarea de arranque automático: {error}")
+
+
+def install_linux_service():
+    problem = linuxservice.problem()
+    if problem:
+        sys.exit(f"✗ {problem}")
+    sync_service_files()
+    write_plist()
+    error = linuxservice.start()
+    if error:
+        sys.exit(f"✗ systemd no aceptó el servicio: {error}")
+    if not linuxservice.lingering():
+        print("Para que arranque al encender la computadora aunque nadie inicie sesión, systemd tiene que mantener tus")
+        print("servicios en marcha siempre. Lo activo ahora (puede pedirte tu contraseña):", flush=True)
+        if linuxservice.enable_linger():
+            print("✓ Activado.")
+        else:
+            print(f"⚠ No se pudo. Hazlo con este comando:  {linuxservice.linger_command()}")
+            print("  Mientras tanto, el servidor arranca solo cuando inicias sesión.\n")
+
+
 def update_service(cfg):
     """./cine con el autoarranque puesto: copia cambios, reinicia si hizo falta y muestra dónde entrar."""
+    problem = "" if hostos.MAC else _service().problem()
+    if problem:
+        sys.exit(f"✗ {problem}")
     files_changed = sync_service_files()
     plist_changed = write_plist()
+    if not hostos.MAC:
+        if plist_changed or not service_pid():
+            say("Arrancando el servidor…")
+            _service().start()
+        elif files_changed:
+            say("Aplicando cambios y reiniciando el servidor…")
+            _service().restart()
+            time.sleep(2)
+        return
     if plist_changed or not service_pid():
         say("Arrancando el servidor…")
         _launchctl("bootout", f"gui/{os.getuid()}/{SERVICE_LABEL}")
@@ -1609,17 +1711,26 @@ def print_status(cfg, st=None):
     st = st or server_answers(cfg["puerto"])
     pid = service_pid()
     local = f"http://localhost:{cfg['puerto']}"
-    auto = SERVICE_PLIST.exists()
+    auto = service_installed()
     if st:
-        print(f"✓ Servidor funcionando" + (" (arranca solo con la computadora)" if auto and pid else " (en una ventana de Terminal)"))
+        how = " (arranca solo con la computadora)" if auto and pid else " (en una ventana de Terminal)"
+        if auto and pid and not hostos.MAC and (hostos.WINDOWS or not linuxservice.lingering()):
+            how = " (arranca solo cuando inicias sesión)"
+        print(f"✓ Servidor funcionando" + how)
         print(f"  {st['items']} videos · Roku: {st['roku'] or 'no encontrado todavía'}")
         print(f"\n  Desde la computadora: {st['server'] or local}")
+        lan = None if hostos.MAC or st["server"] else hostos.lan_url(cfg["puerto"])
+        if lan:   # Linux sin el Roku todavía (un servidor sin pantalla): la dirección para entrar desde otro aparato
+            print(f"  Desde otro aparato:   {lan}")
         ts = tailscale_url(cfg["puerto"])
-        print(f"  Desde el iPhone:      {ts}" if ts else "  Desde el iPhone:      corre ./cine tailscale")
+        print(f"  Desde el iPhone:      {ts}" if ts else f"  Desde el iPhone:      corre {hostos.CINE} tailscale")
     else:
         print("✗ El servidor no está corriendo." + (" Revisa el registro: " + str(SERVICE_LOG) if auto else ""))
     if auto:
         print(f"\n  Registro: {SERVICE_LOG}")
+    if auto and not hostos.MAC and not hostos.WINDOWS and not linuxservice.lingering():
+        print("  Arranca solo cuando inicias sesión. Para que arranque al encender la computadora:\n"
+              f"    {linuxservice.linger_command()}")
 
 
 # ---------- ícono en la barra de menú ----------
@@ -1697,7 +1808,7 @@ def menubar_outdated():
 # ---------- Tailscale (https para el iPhone) ----------
 
 def tailscale_cli():
-    for c in ("/Applications/Tailscale.app/Contents/MacOS/Tailscale", shutil.which("tailscale")):
+    for c in (*hostos.TAILSCALE_PATHS, shutil.which("tailscale")):
         if c and Path(c).exists():
             return c
     return None
@@ -1733,7 +1844,9 @@ def setup_tailscale(cfg):
                            capture_output=True, text=True, timeout=30)
         url = tailscale_url(cfg["puerto"])
         if not url:
-            sys.exit("✗ Tailscale no aceptó la configuración:\n" + (r.stdout + r.stderr).strip())
+            hint = "" if hostos.MAC or hostos.WINDOWS else ("\n  Si dice que no tienes permiso, dáselo a tu usuario una vez con:  "
+                                          "sudo tailscale set --operator=$USER")
+            sys.exit("✗ Tailscale no aceptó la configuración:\n" + (r.stdout + r.stderr).strip() + hint)
     print(f"✓ Página disponible en tu red Tailscale (solo tus dispositivos):\n  {url}")
     print("  En el iPhone: ábrela en Safari → Compartir → «Añadir a pantalla de inicio».")
 
@@ -1762,7 +1875,7 @@ def ask(question, default=""):
     try:
         answer = input(f"{question}{suffix}: ").strip()
     except EOFError:
-        sys.exit("\n✗ No pude leer la respuesta. Corre  ./cine configurar  desde una Terminal.")
+        sys.exit(f"\n✗ No pude leer la respuesta. Corre  {hostos.CINE} configurar  desde una Terminal.")
     return answer or default
 
 
@@ -1771,7 +1884,7 @@ def configure_first_time():
     current = {}
     if CONFIG.exists():
         try:
-            current = json.loads(CONFIG.read_text())
+            current = json.loads(CONFIG.read_text(encoding="utf-8-sig"))
         except json.JSONDecodeError:
             current = {}
         print("Ya existe un config.json. Vamos a repasarlo: Enter deja lo que ya tiene.\n")
@@ -1781,13 +1894,14 @@ def configure_first_time():
 
     if not shutil.which("ffmpeg"):
         print("⚠ No encuentro ffmpeg, que hace falta para pasar los videos a la TV.")
-        print("  Instálalo con:  brew install ffmpeg   (si no tienes Homebrew: https://brew.sh)\n")
+        print(f"  Instálalo con:  {hostos.install_hint('ffmpeg')}\n")
 
     folders = current.get("carpetas") or []
     print("1) ¿En qué carpeta de la computadora van a estar tus películas y series?")
-    print("   Si no existe, la creo. Mejor fuera de Descargas, Documentos y Escritorio (macOS las protege).")
+    print("   Si no existe, la creo." + (" Mejor fuera de Descargas, Documentos y Escritorio (macOS las protege)."
+                                           if hostos.MAC else ""))
     while True:
-        folder = ask("   Carpeta", folders[0] if folders else "~/Movies/Biblioteca")
+        folder = ask("   Carpeta", folders[0] if folders else hostos.default_library())
         path = Path(folder).expanduser()
         try:
             path.mkdir(parents=True, exist_ok=True)
@@ -1795,11 +1909,11 @@ def configure_first_time():
         except OSError as e:
             print(f"   ✗ No pude crear {path}: {e.strerror or e}. Prueba con otra.")
     protected = [Path.home() / d for d in ("Downloads", "Documents", "Desktop")]
-    if any(path == p or p in path.parents for p in protected):
+    if hostos.MAC and any(path == p or p in path.parents for p in protected):
         print("   ⚠ macOS no deja al servicio leer esa carpeta en segundo plano; mejor usa una dentro de ~/Movies.")
     print(f"   ✓ Carpeta lista: {path}\n")
 
-    print("2) Contraseña del modo desarrollador del Roku (la que pusiste al activarlo; ver docs/INSTALAR.md, paso 5).")
+    print("2) Contraseña del modo desarrollador del Roku (la que pusiste al activarlo; ver docs/INSTALAR.md, paso 6).")
     print("   Sin ella no puedo instalar la app en el Roku. Enter para ponerla más tarde en config.json.")
     password = ask("   Contraseña", current.get("roku_password", ""))
     if password == "contraseña-del-modo-desarrollador":
@@ -1816,13 +1930,13 @@ def configure_first_time():
     print()
 
     music_now = current.get("musica")
-    suggested = (music_now[0] if music_now else (default_roots() or [""])[0]).replace(str(Path.home()), "~")
+    suggested = hostos.tilde(music_now[0] if music_now else (default_roots() or [""])[0])
     print("4) ¿Dónde está tu música (opcional)? Artistas, álbumes y listas .m3u8, con sus portadas.")
     print("   Enter acepta la sugerencia; «no» para no usar música.")
     music = ask("   Carpeta de música", suggested or "no")
     if music.strip().lower() in ("no", "-", "ninguna"):
         music_roots = []
-        print("   · Sin música (se puede agregar después con  ./cine configurar).")
+        print(f"   · Sin música (se puede agregar después con  {hostos.CINE} configurar).")
     elif Path(music).expanduser().is_dir():
         music_roots = [music]
         print(f"   ✓ La sección Música va a leer {Path(music).expanduser()}")
@@ -1848,7 +1962,7 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "iniciar"
     if cmd == "configurar":
         configure_first_time()
-        print("\nSiguiente paso: corre  ./cine  para arrancar (guía completa en docs/INSTALAR.md).")
+        print(f"\nSiguiente paso: corre  {hostos.CINE}  para arrancar (guía completa en {hostos.guide()}).")
         return
     if cmd != "servir" and not CONFIG.exists() and cmd in ("iniciar", "catalogo", "tailscale", "autoarranque", "instalar"):
         configure_first_time()   # primer arranque: sin config.json no se puede hacer nada más
@@ -1861,6 +1975,9 @@ def main():
         return print_catalog(App(cfg))
     if cmd == "tailscale":
         return setup_tailscale(cfg)
+    if cmd in ("barra", "quitar-barra") and not hostos.MAC:
+        return print(f"· El ícono de la barra de menú es solo para macOS: en {hostos.SYSTEM} no aplica "
+                     f"(usa {hostos.CINE} estado).")
     if cmd == "barra":
         return install_menubar()
     if cmd == "quitar-barra":
@@ -1873,16 +1990,21 @@ def main():
         return print_status(cfg)
     if cmd == "autoarranque":
         install_service(cfg)
-        print("✓ Listo: el servidor queda corriendo y arrancará solo cada vez que inicies sesión en la computadora.")
+        when = ("se encienda la computadora" if not hostos.MAC and not hostos.WINDOWS and linuxservice.lingering()
+                else "inicies sesión en la computadora")
+        print(f"✓ Listo: el servidor queda corriendo y arrancará solo cada vez que {when}.")
         print("  Esperando a que arranque…\n")
         return print_status(cfg, wait_for_server(cfg["puerto"]))
     if cmd == "quitar-autoarranque":
-        _launchctl("bootout", f"gui/{os.getuid()}/{SERVICE_LABEL}")
-        SERVICE_PLIST.unlink(missing_ok=True)
+        if hostos.MAC:
+            _launchctl("bootout", f"gui/{os.getuid()}/{SERVICE_LABEL}")
+            SERVICE_PLIST.unlink(missing_ok=True)
+        else:
+            _service().remove()
         for sub in ("mac", "roku"):  # "datos" (progreso) se conserva
             shutil.rmtree(SERVICE_HOME / sub, ignore_errors=True)
         (SERVICE_HOME / "config.json").unlink(missing_ok=True)
-        return print("✓ Ya no arranca solo. Para usarlo, abre ./cine cuando quieras ver algo.")
+        return print(f"✓ Ya no arranca solo. Para usarlo, abre {hostos.CINE} cuando quieras ver algo.")
     if cmd == "instalar":
         app = App(cfg)
         if not app.connect_roku(force=True):
@@ -1891,14 +2013,16 @@ def main():
     if cmd != "iniciar":
         sys.exit(__doc__)
 
-    if SERVICE_PLIST.exists():
+    if service_installed():
         update_service(cfg)
         print_status(cfg, wait_for_server(cfg["puerto"]))
         if os.environ.get("CINE_NO_BROWSER") != "1":
-            webbrowser.open(f"http://localhost:{cfg['puerto']}")
+            hostos.open_browser(f"http://localhost:{cfg['puerto']}")
         return
     run_server(background=False)
 
 
 if __name__ == "__main__":
+    if hostos.WINDOWS and not sys.flags.utf8_mode:   # textos en UTF-8, como en macOS y Linux (ver hostos.rerun_utf8)
+        sys.exit(hostos.rerun_utf8())
     main()

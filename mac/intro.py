@@ -20,6 +20,8 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import hostos
+
 START_DELAY = 5 * 60      # que el servidor arranque tranquilo (pósters, fotogramas clave…)
 CHECK_EVERY = 10 * 60
 TIMEOUT = 40 * 60         # una temporada larga con archivos muy pesados
@@ -48,8 +50,9 @@ def run_introsync(python, script, episodes, detail=False, timeout=TIMEOUT):
     env = {**os.environ, "OMP_NUM_THREADS": "2", "OPENBLAS_NUM_THREADS": "2", "VECLIB_MAXIMUM_THREADS": "2"}
     args = [str(x) for ep in episodes for x in (ep[0], ep[1], ep[2], f"{ep[3]:.1f}")]
     # Prioridad baja: que no le quite fluidez a lo que se esté viendo ni caliente la Mac.
-    cmd = ["nice", "-n", "15", str(python), str(script), "detectar", *args] + (["--detalle"] if detail else [])
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL, env=env)
+    cmd = hostos.low_priority([python, script, "detectar", *args] + (["--detalle"] if detail else []))
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL, env=env,
+                       **hostos.LOW_PRIORITY)
     try:
         result = json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):

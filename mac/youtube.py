@@ -21,6 +21,7 @@ from html import unescape as html_unescape
 from pathlib import Path
 
 from live import check_web_url, rewrite_playlist
+from qrpng import write_qr
 from ytdurations import Blocked, Durations, date_of, epoch_of, parse_ago, seconds_of
 
 RESOLVE_TTL = 3 * 3600    # YouTube da las direcciones por unas 6 h; se renuevan antes
@@ -60,16 +61,7 @@ BATCH_URL = "https://www.youtube.com/watch_videos?video_ids={}&hl=es&gl=MX"
 BOT_PAGE = re.compile(r"not a bot|no eres un bot|no eres un robot", re.I)   # «Sign in to confirm you're not a bot»
 
 
-# Código QR con lo que ya trae macOS (CoreImage, desde JavaScript de osascript): sin instalar nada.
-QR_SCRIPT = """ObjC.import('Foundation'); ObjC.import('CoreImage'); ObjC.import('AppKit');
-function run(argv) {
-  var f = $.CIFilter.filterWithName('CIQRCodeGenerator');
-  f.setValueForKey($(argv[0]).dataUsingEncoding($.NSUTF8StringEncoding), 'inputMessage');
-  f.setValueForKey($('M'), 'inputCorrectionLevel');
-  var rep = $.NSBitmapImageRep.alloc.initWithCIImage(f.outputImage);
-  rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $()).writeToFileAtomically(argv[1], true);
-}"""
-QR_SIZE = 624   # lo que ocupa en la tele (cuadros enteros, con margen negro)
+QR_SIZE = 624   # lo que ocupa en la tele (cuadros enteros, con margen negro; ver mac/qrpng.py)
 
 
 def share_url(vid, at=0):
@@ -765,20 +757,11 @@ class YouTube:
         """Código QR del enlace al video, para abrirlo o compartirlo desde el teléfono."""
         path = self.thumbs / f"qr-oscuro-{vid}.png"
         if not path.exists():
-            small = path.with_name(f"qr-{vid}.small.png")
+            # En fondo oscuro, como el resto de One TV: cuadritos claros sobre negro (Python puro, mac/qrpng.py).
             try:
-                subprocess.run(["osascript", "-l", "JavaScript", "-", share_url(vid), str(small)], input=QR_SCRIPT,
-                               text=True, capture_output=True, timeout=20)
-                # Cada cuadrito del código, del mismo tamaño y nítido; en fondo oscuro, como el resto de One TV:
-                # cuadritos claros (el color del texto) sobre negro. La cámara del iPhone lo lee igual.
-                subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(small), "-vf",
-                                f"scale=iw*floor({QR_SIZE - 64}/iw):-1:flags=neighbor,negate,"
-                                f"colorlevels=romax=0.95:gomax=0.95:bomax=0.93,"
-                                f"pad={QR_SIZE}:{QR_SIZE}:(ow-iw)/2:(oh-ih)/2:black", str(path)],
-                               capture_output=True, timeout=20, stdin=subprocess.DEVNULL)
-            except (OSError, subprocess.TimeoutExpired):
+                write_qr(share_url(vid), path, QR_SIZE)
+            except OSError:
                 pass
-            small.unlink(missing_ok=True)
         return path if path.exists() else None
 
     # ---------- foto de un canal ----------

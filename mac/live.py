@@ -29,9 +29,9 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-CHROME_PATHS = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-                "/Applications/Chromium.app/Contents/MacOS/Chromium"]
+import hostos
+
+CHROME_PATHS = hostos.CHROME_PATHS   # Chrome, Brave o Chromium: dónde están en macOS y en Linux
 DESKTOP_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
 HLS_MIME = ("mpegurl",)
@@ -185,7 +185,7 @@ def _looks_like_hls(url, mime=""):
 
 def resolve_stream(page_url, chrome, timeout=45):
     """Abre la página y devuelve {"url", "headers", "title", "poster"} del video en vivo."""
-    profile = tempfile.mkdtemp(prefix="cine-live-")
+    profile = tempfile.mkdtemp(prefix="cine-live-", dir=hostos.chrome_profile_parent(chrome))
     proc = subprocess.Popen(
         [chrome, "--headless=new", "--remote-debugging-port=0", f"--user-data-dir={profile}",
          "--no-first-run", "--no-default-browser-check", "--mute-audio", "--window-size=1280,720",

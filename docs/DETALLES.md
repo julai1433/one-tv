@@ -4,9 +4,13 @@ Referencia de lo que hay por dentro: comandos, cómo se ordena la biblioteca, el
 el arranque automático, cómo llega cada video a la TV, «En vivo», los subtítulos y la configuración. Para
 instalar, ver [INSTALAR.md](INSTALAR.md); para usarlo, el [README](../README.md).
 
+**Qué cubre hoy**: One TV tiene tres piezas (el servidor, la app de la TV y la web). Hoy el servidor corre en **macOS**
+y la app de TV es para **Roku**; lo que depende de uno u otro lo dice el título o la frase («macOS», «Roku»), y lo demás
+vale para cualquier sistema o TV. Lo que viene está en la [hoja de ruta](HOJA_DE_RUTA.md).
+
 ## Comandos
 
-Desde esta carpeta, en una Terminal (o doble clic en `One TV.command`, que equivale a `./cine`):
+Desde esta carpeta, en una Terminal de macOS (o doble clic en `One TV.command`, que equivale a `./cine`):
 
 | Comando | Qué hace |
 |---|---|
@@ -15,10 +19,10 @@ Desde esta carpeta, en una Terminal (o doble clic en `One TV.command`, que equiv
 | `./cine autoarranque` | Deja el servidor corriendo siempre y arrancando solo al iniciar sesión. |
 | `./cine quitar-autoarranque` | Deja de arrancar solo. |
 | `./cine estado` | Dice si está corriendo y en qué direcciones. |
-| `./cine tailscale` | Publica la página en tu red Tailscale con https (ver docs/INSTALAR.md). |
-| `./cine barra` / `./cine quitar-barra` | Pone o quita el ícono de la barra de menú. |
+| `./cine tailscale` | Publica la página en tu red Tailscale con https, para verla fuera de casa (ver [INSTALAR.md](INSTALAR.md#opcional-fuera-de-casa-con-tailscale)). |
+| `./cine barra` / `./cine quitar-barra` | Pone o quita el ícono de la barra de menú (solo macOS). |
 | `./cine catalogo` | Lista los videos y cómo llega cada uno a la TV. |
-| `./cine instalar` | Reinstala la app en el Roku. |
+| `./cine instalar` | Reinstala la app en el Roku (hoy la única app de TV). |
 
 ### Biblioteca automática
 
@@ -71,7 +75,7 @@ con una entrada especial), ese episodio queda sin marca: no se inventa.
   10 s; cualquier otra tecla lo esconde. Nunca salta solo; si se vuelve a entrar al tramo, se ofrece otra vez.
 - Para probar una temporada: `python3 pruebas/intro_temporada.py "<carpeta de la temporada>"`.
 
-### Arranque automático
+### Arranque automático (macOS)
 
 `./cine autoarranque` registra un servicio de macOS (launchd, `~/Library/LaunchAgents/local.cine-roku.plist`)
 que arranca al iniciar sesión y se relanza solo si se cae. macOS no deja a los servicios leer la carpeta
@@ -87,7 +91,7 @@ El servicio también:
 El progreso («Seguir viendo») y los idiomas preferidos se guardan en la computadora:
 `~/Library/Application Support/cine-roku/datos/progreso.json`. El Roku reporta cada 10 s qué se ve y por dónde va.
 
-### Ícono de la barra de menú
+### Ícono de la barra de menú (macOS)
 
 App nativa en SwiftUI (`menubar/`), instalada en `~/Applications/One TV.app` y lanzada al iniciar sesión
 por launchd (`local.cine-roku.barra`). Pregunta el estado al servidor cada 3 s y usa `launchctl` para encender
@@ -102,7 +106,7 @@ por launchd (`local.cine-roku.barra`). Pregunta el estado al servidor cada 3 s y
 Las carpetas de videos deben estar fuera de Descargas, Documentos y Escritorio (por ejemplo en `~/Movies`).
 Si no, macOS no deja leerlas en segundo plano y el registro lo avisa.
 
-### iPhone por Tailscale
+### Fuera de casa por Tailscale
 
 `./cine tailscale` ejecuta `tailscale serve --bg --https=8766 http://127.0.0.1:8765`: la página queda en
 `https://<nombre-de-tu-computadora>.<tu-red>.ts.net:8766` (la dirección real la muestra el comando) con certificado válido y **solo** para dispositivos de tu
@@ -111,16 +115,16 @@ tailnet (no es pública). Tailscale recuerda la configuración aunque reinicies.
 
 ## Qué hace por dentro
 
-- `mac/`: programa en Python que corre en la computadora.
+- `mac/`: el servidor, un programa en Python que corre en la computadora (hoy en macOS; el nombre de la carpeta viene de ahí).
   - `library.py`: busca los videos, limpia los títulos, los agrupa en filas y decide cómo llega cada uno al Roku.
   - `transcode.py`: arma al vuelo, en trozos, lo que el Roku no puede reproducir tal cual (ver abajo).
   - `server.py`: sirve el catálogo, los videos, portadas y subtítulos. Evita que la computadora se duerma mientras se ve algo.
   - `roku.py`: encuentra el Roku en la red, instala la app y le manda órdenes (control remoto por red, ECP).
   - `cine.py`: comandos, arranque automático, Tailscale e ícono de la barra.
   - `store.py`: progreso y preferencias de idioma.
-  - `web/`: la página para elegir desde la computadora o el iPhone.
+  - `web/`: la página para elegir desde la computadora o el teléfono (cualquier navegador).
 - `menubar/`: el ícono de la barra de menú (SwiftUI).
-- `roku/`: la app del Roku (BrightScript/SceneGraph). El servidor la instala o actualiza sola con la dirección
+- `roku/`: la app de TV para Roku (BrightScript/SceneGraph); otras TV tendrán su propia carpeta. El servidor la instala o actualiza sola con la dirección
   actual de la computadora. `components/MainScene` es la pantalla (navegación en `MainScene.brs`, secciones en
   `Catalog.brs`, YouTube en `YouTube.brs`, reproducir y fila en `Playback.brs`) y usa componentes: `SideMenu`
   (menú lateral), `ContentRows` (filas), `PosterGrid` (cuadrícula), `DetailView` (ficha), `SearchView`,
@@ -184,6 +188,20 @@ Los que son imagen (PGS, DVD) no se pueden mostrar.
   aparecen como «Español (Latino) · internet».
 - Cupo: 5 descargas al día solo con la clave; 20 si pones usuario y contraseña de tu cuenta gratis en `config.json`.
 
+**A tiempo, solos:** los subtítulos que no vienen dentro del video (los de internet y los `.srt`/`.vtt` que pones
+junto al video) muchas veces son de otra versión y quedan corridos. One TV los alinea con la voz sin que hagas nada:
+- Escucha dónde hay voz en el audio (en 5.1, el canal central) y la compara con cuándo hay una línea en pantalla
+  (`mac/subsync_voz.py`). Corrige un desfase fijo, otra velocidad (23,976 / 24 / 25 cuadros por segundo) y saltos a
+  medio video (una escena de más o de menos, por tramos como la herramienta *alass*); si al subtítulo le sobra una
+  escena, quita esas líneas.
+- Solo corrige si la coincidencia es clara; si no (por ejemplo, un subtítulo de otra película), lo deja como está.
+- El archivo original no se toca: el alineado se guarda en la caché y es el que reciben la TV y la web, con el mismo
+  nombre de pista. Si ya estaba a tiempo, se usa el original.
+- Corre solo, con prioridad baja: unos minutos después de arrancar (una vez para los que ya están), al bajar uno y
+  cada 2 minutos por si pusiste uno a mano. Tarda segundos por película. Lo que hizo con cada uno (qué corrigió,
+  cuánto y con qué confianza) queda en `datos/subtitulos_alineados.json` y en el registro; no se repite si ni el
+  subtítulo ni el video cambiaron. Usa el mismo entorno con numpy que el doblaje.
+
 ## Configuración (`config.json`)
 
 `config.json` tiene claves y contraseñas, así que no se guarda en el repositorio (`.gitignore`). En una copia
@@ -196,6 +214,8 @@ Tras editarlo, corre `./cine` para aplicarlo.
 
 ## Si algo falla
 
+Los síntomas más comunes (con Roku y macOS, lo que hay hoy):
+
 - **La TV dice que no encuentra la computadora**: la computadora está apagada, dormida o en otra red Wi-Fi, o el servicio no corre
   (`./cine estado`). La app reintenta sola cada 5 segundos.
 - **La app desapareció del Roku** (tras restablecerlo o apagar el modo desarrollador): vuelve a activar el modo
@@ -203,24 +223,33 @@ Tras editarlo, corre `./cine` para aplicarlo.
   y corre `./cine instalar`.
 - **Se corta al cerrar la tapa de la laptop**: macOS duerme la computadora con la tapa cerrada. Déjala abierta (la pantalla
   puede apagarse; mientras se ve algo, la computadora no se duerme sola).
-- **El iPhone no abre la página**: revisa que Tailscale esté encendido en el iPhone.
+- **El teléfono no abre la página fuera de casa**: revisa que Tailscale esté encendido en el teléfono.
 - Portadas, subtítulos extraídos e índices de fotogramas clave se guardan en `~/Library/Caches/cine-roku`
-  (se puede borrar sin problema).
+  (en Linux, `~/.cache/cine-roku`; se puede borrar sin problema).
 
-Requisitos: macOS con `python3` y `ffmpeg` (`brew install ffmpeg`), Roku en el mismo Wi-Fi. Google Chrome o Brave solo para «En vivo».
+Requisitos: macOS con `python3` y `ffmpeg` (`brew install ffmpeg`), Ubuntu 24.04 (`sudo apt install python3 python3-venv ffmpeg`;
+ver [INSTALAR-UBUNTU.md](INSTALAR-UBUNTU.md)) o Windows 10 u 11 (Python y ffmpeg con winget, que `cine.cmd` ofrece
+instalar; ver [INSTALAR-WINDOWS.md](INSTALAR-WINDOWS.md)), Roku en la misma red. Google Chrome o Brave solo para «En
+vivo» (en Windows también Edge).
 
 ## Limitaciones conocidas
 
-- **Solo macOS** como servidor (arranque con launchd, el chip de video de la Mac, `caffeinate`, el ícono de la barra
-  de menú). Fuera de macOS el servidor convierte con el procesador (`libx264`) y no impide que la computadora se
-  duerma, pero no está probado ni documentado: es lo siguiente en la hoja de ruta (Linux y Docker).
-- **Solo Roku** como app de TV (y la web en cualquier navegador). El modo desarrollador del Roku admite una sola app
-  instalada a mano a la vez: One TV reemplaza a cualquier otra que hayas instalado así.
+- **Servidor en macOS y en Ubuntu 24.04** (otras versiones de Linux con systemd probablemente sirvan; no se han
+  probado). En Linux: arranque con systemd del usuario, el chip de video se elige al arrancar probando un segundo
+  (NVENC, Quick Sync, VAAPI; todavía sin probar con hardware real) o el procesador (`libx264`), sin ícono en la barra
+  de menú, y el servicio no puede impedir que un escritorio se suspenda. Docker: en la [hoja de ruta](HOJA_DE_RUTA.md).
+- **Servidor en Windows 10 y 11**: arranque con una tarea del Programador de tareas al iniciar sesión (no antes: para
+  eso Windows pide guardar la contraseña de la cuenta), el chip de video se elige igual que en Linux (NVENC, Quick
+  Sync, AMF; sin probar con hardware real), sin ícono en la barra de menú. Datos, caché y registro en
+  `%LOCALAPPDATA%\cine-roku`; lo propio de Windows está en `mac/winapi.py` y `mac/windowsservice.py`.
+- **Solo Roku** como app de TV (y la web en cualquier navegador); Google TV, Android TV y Fire TV vienen después. El
+  modo desarrollador del Roku admite una sola app instalada a mano a la vez: One TV reemplaza a cualquier otra que hayas
+  instalado así.
 - **Un Roku por servidor**: si hay varios en la red, usa el primero que encuentra (o el de `roku_ip`).
 - **El español latino** es el idioma que se prefiere al elegir audio y sinopsis cuando hay varios (`mac/library.py`,
   `mac/metadata.py`).
-- `yt-dlp` (YouTube) y `numpy` (doblaje latino) se instalan y actualizan solos desde PyPI, en entornos aparte, sin
-  versión fija.
+- `yt-dlp` (YouTube) y `numpy` (doblaje latino, «Saltar intro» y subtítulos a tiempo) se instalan y actualizan
+  solos desde PyPI, en entornos aparte, sin versión fija.
 
 ## Seguridad
 

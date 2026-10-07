@@ -669,6 +669,7 @@
   .rm-close .i { width: 20px; height: 20px; }
   @media (hover: hover) { .rm-close:hover { color: var(--lime); } }
   .rm-img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 2px; background: var(--raise-3); display: block; }
+  .rm-img.album { aspect-ratio: 1; }   /* portada de álbum (no «sq»: esa clase es la de los botones cuadrados) */
   .rm-title { font-size: 28px; overflow-wrap: anywhere; }
   .rm-state { color: var(--text-soft); font-size: 14px; margin-top: 8px; }
   .rm-skip-note { color: var(--muted); font-size: 12px; margin-top: 8px; }
@@ -692,6 +693,8 @@
   input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 2px; background: var(--lime); }
   .times { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: -8px; }
   .rm-ctl { display: grid; grid-template-columns: repeat(3, 1fr); align-items: end; justify-items: center; }
+  .rm-ctl > div[hidden] { display: none; }
+  .rbtn:disabled { opacity: .35; cursor: default; }
   .rm-ctl > div { display: grid; justify-items: center; gap: 8px; font-size: 12px; color: var(--text-soft); font-weight: 500; font-variant-numeric: tabular-nums; }
   .rbtn { width: 64px; height: 64px; border-radius: 2px; border: 1px solid var(--edge); background: none; color: var(--text);
           display: grid; place-items: center; padding: 0; }
@@ -1020,9 +1023,11 @@
       <div class="times"><span id="np-cur">0:00</span><span id="np-dur">0:00</span></div>
     </div>
     <div class="rm-ctl">
-      <div><button class="rbtn" type="button" data-jump="-10" aria-label="Atrás 10 segundos"><svg class="i" aria-hidden="true"><use href="#i-ccw"/></svg></button>−10 s</div>
+      <div id="np-prev-box" hidden><button class="rbtn" id="np-prev" type="button" aria-label="Canción anterior"><svg class="i" aria-hidden="true"><use href="#i-prev"/></svg></button>Anterior</div>
+      <div class="np-jump"><button class="rbtn" type="button" data-jump="-10" aria-label="Atrás 10 segundos"><svg class="i" aria-hidden="true"><use href="#i-ccw"/></svg></button>−10 s</div>
       <div><button class="rbtn main" id="np-play" type="button" aria-label="Pausa o seguir"><svg class="i" aria-hidden="true"><use href="#i-pause"/></svg></button><span id="np-play-label">Pausa</span></div>
-      <div><button class="rbtn" type="button" data-jump="30" aria-label="Adelante 30 segundos"><svg class="i" aria-hidden="true"><use href="#i-cw"/></svg></button>+30 s</div>
+      <div class="np-jump"><button class="rbtn" type="button" data-jump="30" aria-label="Adelante 30 segundos"><svg class="i" aria-hidden="true"><use href="#i-cw"/></svg></button>+30 s</div>
+      <div id="np-next-box" hidden><button class="rbtn" id="np-next" type="button" aria-label="Siguiente canción"><svg class="i" aria-hidden="true"><use href="#i-next"/></svg></button>Siguiente</div>
     </div>
     <div class="rm-acts">
       <button id="np-here" type="button"><svg class="i" aria-hidden="true"><use href="#i-phone"/></svg>Traer aquí</button>
@@ -4366,11 +4371,20 @@ function showNowPlaying(p) {
     $("np-share").hidden = !isYt;
     loadNpChapters(isYt ? p.id.slice(3) : null);
   }
+  // Música: anterior y siguiente en lugar de ±10 / +30 s; sin «Traer aquí» (eso es de videos).
+  const music = p.kind === "music";
+  $("rm-img").classList.toggle("album", music);
+  $("np-prev-box").hidden = $("np-next-box").hidden = !music;
+  document.querySelectorAll(".np-jump").forEach(el => { el.hidden = music; });
+  $("np-prev").disabled = !p.prev;
+  $("np-next").disabled = !p.next;
+  $("np-here").hidden = music;
+  $("np-seek").setAttribute("aria-label", music ? "Posición de la canción" : "Posición del video");
   if (document.activeElement !== $("np-audio")) $("np-audio").value = String(p.audio ?? 0);
   if (document.activeElement !== $("np-sub")) $("np-sub").value = String(p.sub ?? -1);
   const word = { play: "reproduciendo", pause: "en pausa", buffer: "cargando…" }[p.state] || "";
   $("mini-state").textContent = "En la TV" + (word ? " · " + word : "");
-  const langs = isYt ? ["YouTube"] : [names.audios[p.audio ?? 0], p.sub >= 0 && names.subs[p.sub] ? "subtítulos en " + lower1(names.subs[p.sub]) : names.subs.length ? "sin subtítulos" : ""];
+  const langs = music ? [p.album] : isYt ? ["YouTube"] : [names.audios[p.audio ?? 0], p.sub >= 0 && names.subs[p.sub] ? "subtítulos en " + lower1(names.subs[p.sub]) : names.subs.length ? "sin subtítulos" : ""];
   $("rm-state").textContent = [word ? word[0].toUpperCase() + word.slice(1) : "", ...langs].filter(Boolean).join(" · ");
   const playing = p.state === "play";
   setIcon($("np-play"), playing ? "pause" : "play");
@@ -4544,6 +4558,10 @@ document.querySelectorAll("[data-jump]").forEach(b => b.addEventListener("click"
   if (np) seekTo(Math.max(0, Math.min(np.duration - 5, currentPosition() + +b.dataset.jump)));
 }));
 $("np-play").onclick = togglePlay;
+// Canción anterior / siguiente de lo que suena en la TV (la TV recibe la orden «song» con dir = -1 o 1).
+const songStep = dir => async () => { await post("/api/music/step", { dir }); setTimeout(poll, 1200); };
+$("np-prev").onclick = songStep(-1);
+$("np-next").onclick = songStep(1);
 $("np-stop").onclick = async () => { await post("/api/key", { key: "Back" }); setTimeout(poll, 1200); };
 $("np-audio").onchange = () => post("/api/tracks", { audio: +$("np-audio").value }).then(() => setTimeout(poll, 2500));
 $("np-sub").onchange = () => post("/api/tracks", { sub: +$("np-sub").value }).then(() => setTimeout(poll, 1500));

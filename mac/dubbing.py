@@ -19,6 +19,7 @@ import threading
 import time
 from pathlib import Path
 
+import hostos
 from library import latino_track, needs_latino, probe
 
 PACKAGES = ["numpy"]
@@ -190,8 +191,9 @@ class Dubbing:
     def _dubsync(self, python, *args):
         env = {**os.environ, "OMP_NUM_THREADS": "2", "OPENBLAS_NUM_THREADS": "2", "VECLIB_MAXIMUM_THREADS": "2"}
         # Prioridad baja: que no le quite fluidez a lo que se esté viendo ni caliente la Mac.
-        cmd = ["nice", "-n", "15", str(python), str(self.script)] + [str(a) for a in args]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, stdin=subprocess.DEVNULL, env=env)
+        cmd = hostos.low_priority([python, self.script, *args])
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, stdin=subprocess.DEVNULL, env=env,
+                           **hostos.LOW_PRIORITY)
         try:
             return json.loads(r.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
@@ -204,13 +206,13 @@ class Dubbing:
             return self._ensure_env()
 
     def _ensure_env(self):
-        python = self.env_dir / "bin" / "python"
+        python = hostos.venv_bin(self.env_dir, "python")   # en Windows, Scripts\python.exe
         if python.exists() and subprocess.run([str(python), "-c", "import numpy"], capture_output=True,
                                               stdin=subprocess.DEVNULL).returncode == 0:
             return python
         shutil.rmtree(self.env_dir, ignore_errors=True)
         subprocess.run([sys.executable, "-m", "venv", str(self.env_dir)], check=True, capture_output=True, timeout=300)
-        r = subprocess.run([str(self.env_dir / "bin" / "pip"), "install", "-q", *PACKAGES],
+        r = subprocess.run([str(hostos.venv_bin(self.env_dir, "pip")), "install", "-q", *PACKAGES],
                            capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL)
         if r.returncode != 0:
             lines = (r.stderr or "").strip().splitlines()

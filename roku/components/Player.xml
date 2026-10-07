@@ -129,5 +129,7 @@
     <Timer id="upNextTimer" duration="1" repeat="true" />
     <!-- Un video de YouTube que no arranca en este tiempo se da por perdido (la TV reintentaría por minutos). -->
     <Timer id="stallTimer" duration="30" repeat="false" />
+    <!-- Cerca del final: si el avance no se mueve, se da por terminado (ver onEndWatch). -->
+    <Timer id="endTimer" duration="2" repeat="true" />
   </children>
 </component>

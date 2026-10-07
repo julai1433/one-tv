@@ -17,6 +17,22 @@ from youtube import YouTubeError
 OUT = Path("/tmp/mosaico-prueba")
 
 
+# Las pruebas describen el mosaico con el chip de la Mac y un ffmpeg 7 o más nuevo, en cualquier sistema (en Linux o con
+# el ffmpeg 6.1 de Ubuntu cambian el primer nivel y dos opciones: eso lo prueba test_linux.py).
+_COMO_EN_LA_MAC = [mock.patch("encoders.current", return_value=mosaic.encoders.VIDEOTOOLBOX),
+                   mock.patch("encoders.ffmpeg_knows", return_value=True)]
+
+
+def setUpModule():
+    for p in _COMO_EN_LA_MAC:
+        p.start()
+
+
+def tearDownModule():
+    for p in _COMO_EN_LA_MAC:
+        p.stop()
+
+
 def local(path="/pelis/a.mkv", w=1920, h=1080, codec="h264", pix="yuv420p", start=0, asel="1", channels=2):
     return {"local": True, "live": False, "video": path, "audio": None, "vsel": "0", "asel": asel, "width": w,
             "height": h, "codec": codec, "pix_fmt": pix, "channels": channels, "start": start}

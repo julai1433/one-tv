@@ -34,6 +34,20 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
   ajuste real y reproduce un video corto; ensucia el historial.
 - `servidor_de_prueba.py` — servidor de la web con una copia de los datos (puerto 8790) para pruebas aisladas;
   usa la carpeta de `CINE_PRUEBA` (por omisión `/tmp/cine-prueba`): copia ahí `datos/` antes de arrancarlo.
+- `datos_demo.py [servir [carpeta] [--tv [IP]] | capturas SALIDA]` — una biblioteca de EJEMPLO para ver One TV sin
+  datos de nadie: 12 películas y 4 capítulos de una serie de DOMINIO PÚBLICO (tramos reales de unos 5 min bajados de
+  Internet Archive, solo ese tramo, a 480p; el código de IMDb o TheTVDB va en la carpeta y de ahí salen los pósters),
+  cinco álbumes con grabaciones CC0 / de dominio público (Bach, Chopin, Beethoven; portadas con pinturas de dominio
+  público de Wikimedia Commons), y YouTube con suscripciones a canales públicos (NASA, ESA, JWST, Blender) importadas
+  de un Takeout inventado, sin cuenta de nadie. Las fuentes y licencias están en los comentarios del archivo. Lo que se
+  baja queda en `~/Library/Caches/one-tv-demo` (o `CINE_DEMO_CACHE`), fuera del repositorio; sin internet, las
+  películas y la música caen a videos y tonos sintéticos. Sin argumentos, arma todo en una carpeta temporal y sirve en
+  `http://localhost:8793` (escucha en toda la red de la casa; cambia el puerto con `CINE_PUERTO`). Con `capturas SALIDA`
+  abre la web en Chrome sin ventana y deja en `SALIDA` las capturas de laptop (1280 px) y teléfono (390 px); tarda unos
+  4 minutos y apaga todo al terminar. Con `servir --tv [IP]` busca tu Roku (IP y contraseña del modo desarrollador de
+  tu `config.json`, o `ROKU_IP` y `ROKU_PASSWORD`) e INSTALA la app apuntando a esta biblioteca, para tomar capturas
+  de la TV; después, `./cine instalar` la deja otra vez apuntando a tu servidor de verdad. Sin `--tv`, finge una TV
+  conectada y no toca el servicio real, su carpeta de datos ni la TV.
 - `doblaje_trozos_vs_original.py <carpeta> <video> <pista.m4a>` — compara los trozos que se mandan a la tele
   con una pista aparte contra la pista que viene dentro del archivo (necesita numpy: usar el Python de
   `~/Library/Application Support/cine-roku/doblaje/bin/python`).
@@ -42,6 +56,10 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
   doblaje y prioridad baja) y muestra una tabla: inicio, fin, duración y confianza (cuántos compañeros
   coinciden). Solo lee los videos. Con `--detalle`, el tramo común de cada par de episodios. Con videos de
   series distintas sirve de control: no debe salir ningún tramo común. Al final dice cuánto tardó y su CPU.
+- `test_subtitulos_alineados.py` — subtítulos aparte alineados solos con la voz (`mac/subsync.py`): leer y corregir
+  .srt/.vtt, el trabajo en segundo plano (no repite, reintenta, guarda el alineado en la caché sin tocar el original)
+  y lo que reciben la tele y la web. Con numpy (`CINE_PYTHON_NUMPY=/ruta/al/python`), además, audio sintético con
+  desfase fijo, otra velocidad, una escena de más o de menos y un subtítulo de otra película.
 - `leer_qr.js <imagen.png>` — lee un código QR con macOS: `osascript -l JavaScript leer_qr.js qr.png`.
 - `takeout_de_prueba.py <carpeta>` — genera zips de Takeout SINTÉTICOS (inglés y español, historial en JSON y en
   HTML, formato viejo de listas) con IDs reales de canales y videos. Imitan lo que se sabe del formato de Google;
@@ -56,6 +74,49 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
 - `test_mosaico.py` — varios a la vez en la TV (`mac/mosaic.py`, sin red): el comando de ffmpeg (2–4 fuentes, audio
   «alt» y «ts», respaldo sin el chip), lo que llega por la API, las listas HLS, la sesión con reloj falso (inactividad,
   trabada, fuente caída) y las rutas. Incluye una prueba corta con ffmpeg de verdad que se salta sola sin VideoToolbox.
+- `test_linea_de_tiempo.py` — la conversión completa (`mac/transcode.py`) con un video sintético que trae 2 s dañados
+  (bytes ilegibles o pedazos faltantes): la salida dura lo mismo, cada trozo empieza en su segundo, la imagen se
+  congela en vez de saltar y el sonido que falta se vuelve silencio (así los subtítulos no se corren). También que al
+  detener ffmpeg a mitad no quede un trozo cortado que se mande como completo. Usa el chip de video si lo hay; si no,
+  el procesador (libx264).
 
 Después de cualquier prueba que reproduzca algo en el servidor de verdad: restaurar `progreso.json` / `youtube.json`
 (o, mejor, probar siempre con `servidor_de_prueba.py` y una copia de los datos).
+
+## Ubuntu (Linux)
+
+- `test_linux.py` — el servidor fuera de macOS, sin red y en cualquier sistema (lo de Linux se simula): carpetas de
+  XDG y del usuario (`mac/hostos.py`), la unidad de systemd y `./cine autoarranque` (`mac/linuxservice.py`), qué
+  codificador de video se elige (`mac/encoders.py`, con un ffmpeg falso; y la prueba de un segundo con el ffmpeg de
+  verdad), el mosaico sin el chip de la Mac y con ffmpeg 6.1, el código QR en Python puro (igual píxel a píxel que el
+  de CoreImage para un enlace normal) y lo que revisa `./cine` antes de arrancar (con un `uname` falso que dice Linux).
+- `humo_servidor.py [--puerto 8794] [--dejar]` — arranca el servidor de verdad (copia del programa y carpeta personal
+  temporales; el Roku apuntado a 127.0.0.1, así que no toca ninguna TV) con tres videos sintéticos de 160 s (directo,
+  copia de video con audio convertido y HEVC de 10 bits que se convierte entero) y revisa `/api/library`, un póster,
+  la lista HLS y un trozo de cada conversión (que sea H.264) y el QR en PNG. Sirve en macOS y en Linux; sale con
+  código 1 si algo falla. Lo corre también GitHub, en el trabajo `ubuntu`.
+- `ubuntu.sh` — en un contenedor de Docker con Ubuntu 24.04 (`ubuntu/Dockerfile`: python3, python3-venv y ffmpeg 6.1
+  de apt, usuario normal) corre todas las pruebas, con el mismo `faulthandler` que GitHub, y `humo_servidor.py`.
+  Borra el contenedor al terminar; la imagen `one-tv-pruebas-ubuntu` queda para la próxima vez.
+- `ubuntu_systemd.sh` — `./cine autoarranque` con systemd de verdad: un contenedor que arranca como una computadora
+  (`ubuntu/Dockerfile.systemd`, necesita Docker con `--privileged`), entrando por SSH como usuario normal:
+  `./cine configurar`, el servicio y «linger», que se levante solo si se cae, que arranque tras reiniciar sin que
+  nadie inicie sesión, `./cine estado` y `./cine quitar-autoarranque`. Tarda ~1 min (más la primera vez).
+
+## Windows
+
+- `test_windows.py` — el servidor en Windows, sin red y en cualquier sistema (lo de Windows se simula): carpetas en
+  `%LOCALAPPDATA%` y las del usuario aunque estén en OneDrive (`mac/hostos.py`, `mac/winapi.py`), la tarea del
+  Programador de tareas y su lanzador sin ventana (`mac/windowsservice.py`), `cine autoarranque`, `estado` y
+  `quitar-autoarranque`, el codificador (NVENC, Quick Sync, AMF), que no se duerma, pausar ffmpeg sin señales, los
+  ffmpeg que quedaron vivos, los entornos aparte (`Scripts\python.exe`), la prioridad baja sin `nice`, nombres de
+  archivo válidos y archivos que se mandan mientras ffmpeg los reemplaza. Las que necesitan Windows de verdad (carpetas
+  conocidas, `SetThreadExecutionState`, pausar un proceso, que los hijos se cierren con el lanzador, detener un ffmpeg)
+  se saltan solas fuera de Windows.
+- `humo_windows.py [--puerto 8798] [--de-verdad]` — en Windows: `humo_servidor.py`, `cine.cmd estado` (la cadena
+  `cine.cmd` → `windows\cine.ps1` → Python) y, con `--de-verdad`, el arranque automático con el Programador de tareas
+  de verdad (usa `%LOCALAPPDATA%\cine-roku`, así que solo corre en GitHub Actions). Lo corre GitHub en el trabajo
+  `windows`.
+- `windows\cine.ps1` se revisó aquí con PowerShell 7 en un contenedor de Linux (que se lea bien y el camino «falta
+  ffmpeg → winget → arranca»); en Windows lo prueba el trabajo de GitHub.
+

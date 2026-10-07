@@ -260,7 +260,8 @@ sub playMusicCtx(tracks as Object, index as Integer, startAt as Integer)
     nextTitle = ""
     if index + 1 < tracks.Count() then nextTitle = tracks[index + 1].title + " · " + tracks[index + 1].artist
     startPlayer({id: "track:" + t.id, title: t.title, url: m.server + t.url, format: format, music: true,
-                 artist: t.artist, album: t.album, art: m.server + t.art, report: false, duration: t.duration, startAt: startAt,
+                 artist: t.artist, album: t.album, art: m.server + t.art, report: true, duration: t.duration, startAt: startAt,
+                 songIndex: index, songCount: tracks.Count(), last: index + 1 >= tracks.Count(),
                  audio: 0, sub: -1, audioTrack: -1, subtitle: "", position: (index + 1).ToStr() + " de " + tracks.Count().ToStr(),
                  nextTitle: nextTitle})
 end sub

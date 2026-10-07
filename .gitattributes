@@ -1,0 +1,4 @@
+# Archivos de Windows: se guardan tal cual, con su fin de línea CRLF (cmd.exe se confunde con LF) y, cine.ps1, con
+# su marca UTF-8 (BOM) para que Windows PowerShell 5.1 lea bien los acentos.
+*.cmd -text
+*.ps1 -text

@@ -14,7 +14,7 @@ normal: cambiar cuál suena es cambiar de pista de audio, sin reiniciar nada.
   EXT-X-MEDIA, una lista por pista; por omisión) o «ts» (todas las pistas dentro de cada trozo).
 - Camino por el chip obligatorio (componer en el procesador calienta la Mac sin ventilador): si el chip
   falla se reintenta decodificando en el chip pero achicando en el procesador y, solo como último recurso,
-  todo en el procesador (libx264), y se anota en el registro.
+  todo en el procesador (libx264), y se anota en el registro. Sin el chip de la Mac (Linux), todo en el procesador.
 - Un solo mosaico a la vez; se detiene solo si nadie lo pide en 30 s. Si ffmpeg muere o una fuente se cae,
   queda con un error legible y se puede rearmar con la misma receta (status da sources/layout/audio).
 """
@@ -30,6 +30,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import encoders
+import hostos
 from transcode import GPU_FORMATS
 
 CELL_W, CELL_H = 960, 540          # cada fuente ocupa un cuarto del cuadro de 1080p
@@ -88,7 +90,7 @@ LIVE_START = -3
 ADVANCE_EXTRA = 2
 # Tras una pausa (la descarga de un trozo de YouTube tarda), ffmpeg vuelve a tiempo real a 1,05× y no alcanzaba nunca:
 # el mosaico con un en vivo salía a 0,72× y la TV se quedaba sin video. A 3× se pone al día enseguida.
-CATCH_UP = ["-readrate_catchup", "3"]
+CATCH_UP = ["-readrate_catchup", "3"]   # ffmpeg 7.1 o más nuevo (el de Ubuntu 24.04, 6.1, no la conoce: va sin ella)
 ACTIVE = ("preparando", "armando", "listo")
 
 
@@ -352,7 +354,8 @@ def _hw(src, tier):
 
 def _input(src, target, tier, video, burst=READ_BURST):
     args = []
-    paced = ["-re", "-readrate_initial_burst", str(burst), *CATCH_UP]
+    catch_up = CATCH_UP if encoders.ffmpeg_knows("readrate_catchup") else []
+    paced = ["-re", "-readrate_initial_burst", str(burst), *catch_up]
     hw = _hw(src, tier) if video else None
     if hw:
         args += ["-hwaccel", "videotoolbox"]
@@ -374,7 +377,10 @@ def _input(src, target, tier, video, burst=READ_BURST):
         # Por el propio servidor. extension_picky: el servidor nombra .ts trozos que a veces son MP4.
         # http_multiple: pide el trozo siguiente mientras lee el actual (el servidor no deja la conexión abierta,
         # así que ffmpeg no lo activa solo y cada trozo esperaba su descarga).
-        args += ["-extension_picky", "0", "-seg_max_retry", "3", "-rw_timeout", str(RW_TIMEOUT), "-http_multiple", "1",
+        # (ffmpeg 6.1 no revisa la extensión ni conoce la opción.)
+        if encoders.ffmpeg_knows("extension_picky"):
+            args += ["-extension_picky", "0"]
+        args += ["-seg_max_retry", "3", "-rw_timeout", str(RW_TIMEOUT), "-http_multiple", "1",
                  *PROBE]
         if src["live"]:
             # Un en vivo ya llega a tiempo real (la investigación lo leyó sin -re); si deja de dar trozos nuevos,
@@ -508,7 +514,8 @@ class Mosaic:
         self.state = "preparando"   # → armando → listo → (terminado | detenido | error)
         self.error = ""
         self.note = ""
-        self.tier = 0
+        # Sin el chip de la Mac (Linux) los dos primeros niveles no sirven: se empieza con el procesador.
+        self.tier = 0 if encoders.current() is encoders.VIDEOTOOLBOX else TIERS.index("procesador")
         self.plan = None
         self.proc = None
         self.created = self.last_seen = clock()
@@ -803,12 +810,12 @@ class Mosaic:
             time.sleep(0.2)
         if rel == "master.m3u8":
             try:
-                return master_text(target.read_text(), self.tracks, self.focus).encode()
+                return master_text(hostos.read_shared(target).decode(), self.tracks, self.focus).encode()
             except OSError:
                 return None
         if rel.endswith(".m3u8") and self.held_back:
             try:
-                return hold_back(target.read_text(), HOLD_BACK).encode()
+                return hold_back(hostos.read_shared(target).decode(), HOLD_BACK).encode()
             except OSError:
                 return None
         return target if target.exists() else None
@@ -823,7 +830,7 @@ class Mosaics:
     def __init__(self, cache_dir, base_url, log=print, clock=time.time, run=True):
         self.root = Path(cache_dir) / "mosaico"   # junto a hls/ (las sesiones de transcode)
         # Un ffmpeg que quedó vivo si el servidor se cerró a la fuerza: se detiene al volver a arrancar.
-        subprocess.run(["pkill", "-TERM", "-f", str(self.root)], capture_output=True)
+        hostos.stop_leftovers(self.root)
         shutil.rmtree(self.root, ignore_errors=True)
         self.root.mkdir(parents=True, exist_ok=True)
         self.base = base_url

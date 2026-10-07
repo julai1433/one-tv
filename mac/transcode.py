@@ -21,12 +21,14 @@ import json
 import math
 import os
 import shutil
-import signal
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+
+import encoders
+import hostos
 
 SEG = 6                 # segundos por trozo (objetivo)
 RESTART_GAP = 8         # si piden un trozo más allá de esto, se reinicia en ese punto
@@ -70,21 +72,35 @@ def audio_input(item, audio_index, ss, copyts=False):
     return args + ["-i", a["file"]]
 
 
+# Si un tramo del archivo está dañado, el decodificador descarta imágenes o sonido. Para que todo lo que sigue quede
+# en su tiempo (y los subtítulos, que van con los tiempos del original, no se corran):
+# - video: una imagen por cada instante, a la cadencia del original; si falta alguna se repite la anterior
+#   (la imagen se congela un momento). ffmpeg ya lo hace así con HLS; se pide explícito para no depender de eso.
+VIDEO_TIMELINE = ["-fps_mode", "cfr"]
+# - audio: donde falta sonido se pone silencio y donde sobra se recorta, siguiendo los tiempos del original.
+#   min_hard_comp: se corrige todo hueco de más de 10 ms (por omisión, hasta 100 ms se dejaban pasar).
+#   Sin first_pts=0 a propósito: un trozo dañado puede llegar con otros canales (4 en vez de 5.1), ffmpeg rearma los
+#   filtros ahí y con first_pts=0 rellenaría con silencio desde el principio del video (medido: 26 s de más).
+AUDIO_TIMELINE = "aresample=async=1:min_hard_comp=0.01"
+
+
 def audio_args(item, audio_index):
+    """Pista de audio convertida a AAC estéreo, en los tiempos del original aunque falten pedazos."""
     if audio_index is None:
         return ["-an"]
     audio = next((a for a in item["info"]["audio"] if a["index"] == audio_index), None)
     source = "1:a:0" if ext_audio(item, audio_index) else f"0:{audio_index}"
     args = ["-map", source, "-c:a", "aac", "-ac", "2", "-ar", "48000", "-b:a", "192k"]
+    filters = [AUDIO_TIMELINE]
     if audio and audio["channels"] > 2:
         # Al pasar de 5.1 a estéreo los diálogos quedan bajos: se sube y se limita.
-        args += ["-af", "aformat=channel_layouts=stereo,volume=1.6,alimiter=limit=0.97"]
-    return args
+        filters += ["aformat=channel_layouts=stereo", "volume=1.6", "alimiter=limit=0.97"]
+    return args + ["-af", ",".join(filters)]
 
 
 class FullPlan:
     """Convierte video y audio; cortes exactos cada SEG segundos."""
-    atomic = True   # el muxer HLS escribe cada trozo aparte y lo renombra al terminar
+    atomic = True   # el muxer HLS escribe cada trozo aparte y lo renombra al terminar (salvo el último si se detiene)
     gpu_failed = set()  # videos con los que el chip no pudo: van por el camino de siempre
 
     def __init__(self, item):
@@ -115,11 +131,12 @@ class FullPlan:
             vf = "scale=w='min(1920,iw)':h=-2,format=yuv420p"
         if VIDEOTOOLBOX:
             cmd += ["-vf", vf, "-c:v", "h264_videotoolbox", "-allow_sw", "1", "-profile:v", "high"]
-        else:   # sin el chip de video de la Mac (Linux, Windows): el procesador
-            cmd += ["-vf", "scale=w='min(1920,iw)':h=-2,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast",
-                    "-profile:v", "high"]
+        else:   # sin el chip de video de la Mac: el chip que funcionó al arrancar, o el procesador (mac/encoders.py)
+            enc = encoders.current()
+            cmd += ["-vf", "scale=w='min(1920,iw)':h=-2,format=yuv420p" + enc.upload, *enc.args, "-profile:v", "high"]
         cmd += ["-b:v", bitrate, "-maxrate", bitrate, "-bufsize", "12M",
                 "-force_key_frames", f"expr:gte(t,n_forced*{SEG})"]
+        cmd += VIDEO_TIMELINE
         cmd += audio_args(self.item, audio_index)
         cmd += ["-sn", "-dn", "-max_muxing_queue_size", "4096", "-output_ts_offset", f"{ss:.3f}",
                 "-f", "hls", "-hls_time", str(SEG), "-hls_list_size", "0", "-hls_segment_type", "mpegts",
@@ -250,10 +267,8 @@ class Session:
         self.cursor = i - 1
 
     def _signal(self, sig):
-        try:
-            os.kill(self.proc.pid, sig)
-        except (ProcessLookupError, AttributeError):
-            pass
+        """«SIGSTOP» pausa a ffmpeg y «SIGCONT» lo deja seguir (en Windows, sin señales: ver hostos.pause_process)."""
+        hostos.pause_process(self.proc, getattr(sig, "name", sig) == "SIGSTOP")
 
     def _segment_files(self):
         for f in self.dir.glob("seg*.ts"):
@@ -267,15 +282,18 @@ class Session:
             return
         if self.alive():
             if self.paused:
-                self._signal(signal.SIGCONT)
+                self._signal("SIGCONT")
             self.proc.terminate()
             try:
                 self.proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
                 self.proc.wait()
-        if not self.plan.atomic and self.proc.returncode != 0 and not self.discarded:
-            # Se cortó (o falló) a medias: el último trozo escrito está incompleto.
+        if self.proc.returncode != 0 and not self.discarded:
+            # Se cortó (o falló) a medias: el último trozo escrito está incompleto. También con FullPlan: al
+            # detenerlo, el muxer HLS cierra el trozo que iba a medias con el nombre de uno terminado (medido: 4,4 s
+            # de los 6 declarados). Si quedara, la TV lo recibiría al llegar ahí y desde ese punto todo (subtítulos
+            # incluidos) iría corrido lo que le falta. Se borra y se vuelve a convertir cuando se pida.
             written = [i for i, _ in self._segment_files() if i >= self.start_seg]
             if written:
                 self.path(max(written)).unlink(missing_ok=True)
@@ -309,7 +327,7 @@ class Session:
             if not self.alive() or i < self.start_seg or i > self.cursor + RESTART_GAP:
                 self._start(i)
             elif self.paused:
-                self._signal(signal.SIGCONT)
+                self._signal("SIGCONT")
                 self.paused = False
             proc = self.proc
         deadline = time.time() + timeout
@@ -340,10 +358,10 @@ class Session:
                 self._advance()
                 ahead = self.cursor - self.last_req
                 if not self.paused and ahead > AHEAD_MAX:
-                    self._signal(signal.SIGSTOP)
+                    self._signal("SIGSTOP")
                     self.paused = True
                 elif self.paused and ahead < AHEAD_RESUME:
-                    self._signal(signal.SIGCONT)
+                    self._signal("SIGCONT")
                     self.paused = False
                 if now - self.last_seen > IDLE_STOP:
                     self.stop()
@@ -356,8 +374,7 @@ class Transcoder:
     def __init__(self, cache_dir):
         self.root = Path(cache_dir) / "hls"
         # Conversiones que quedaron vivas si la vez anterior se cerró a la fuerza.
-        for sig in ("-CONT", "-TERM"):
-            subprocess.run(["pkill", sig, "-f", str(self.root)], capture_output=True)
+        hostos.stop_leftovers(self.root)
         shutil.rmtree(self.root, ignore_errors=True)
         self.root.mkdir(parents=True, exist_ok=True)
         self.keyframes = Keyframes(cache_dir)

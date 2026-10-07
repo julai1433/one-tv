@@ -1,4 +1,4 @@
-# Pruebas de cada cambio: las de la computadora (macOS, con ffmpeg) y la revisión del código de la app del Roku.
+# Pruebas de cada cambio: las de la computadora (macOS y Ubuntu, con ffmpeg) y la revisión del código de la app del Roku.
 name: Pruebas
 on:
   push:
@@ -18,6 +18,22 @@ jobs:
           python3 -X faulthandler -c "import faulthandler, unittest; faulthandler.dump_traceback_later(180, exit=True);
           unittest.main(module=None, argv=['pruebas', 'discover', '-v', '-s', 'pruebas', '-p', 'test_*.py'])"
 
+  ubuntu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Pruebas
+        # Igual que en macOS: si algo se traba más de 3 minutos, se imprime dónde está cada hilo y se termina.
+        run: >
+          python3 -X faulthandler -c "import faulthandler, unittest; faulthandler.dump_traceback_later(180, exit=True);
+          unittest.main(module=None, argv=['pruebas', 'discover', '-v', '-s', 'pruebas', '-p', 'test_*.py'])"
+      - name: Prueba de humo del servidor
+        # El servidor de verdad con tres videos de prueba: catálogo, póster, conversión con libx264 y código QR.
+        run: python3 pruebas/humo_servidor.py --puerto 8794
+
   roku:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -28,3 +44,42 @@ jobs:
           node-version: 20
       - name: Código de la app del Roku (BrightScript)
         run: npx -y brighterscript@0
+
+  androidtv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: androidtv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Plataforma de Android que pide la app (API 37.2)
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" > /dev/null
+      - name: Pruebas y app de Android TV (Google TV, Android TV y Fire TV)
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: "1"   # textos en UTF-8, como corre el servidor (cine.cmd y la tarea de arranque lo piden igual)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # el que instala la guía (winget install -e --id Python.Python.3.12)
+      - name: ffmpeg
+        run: choco install ffmpeg -y --no-progress
+      - name: Pruebas
+        # Igual que en macOS y Ubuntu: si algo se traba más de 3 minutos, se imprime dónde está cada hilo y se termina.
+        run: >
+          python -X faulthandler -c "import faulthandler, unittest; faulthandler.dump_traceback_later(180, exit=True);
+          unittest.main(module=None, argv=['pruebas', 'discover', '-v', '-s', 'pruebas', '-p', 'test_*.py'])"
+      - name: Prueba de humo del servidor, de cine.cmd y del arranque automático (Programador de tareas)
+        # El servidor de verdad con videos de prueba (como en Ubuntu); luego «cine.cmd estado» y la tarea «One TV» de
+        # verdad: arranca sin ventana, vuelve sola si se cae, aplica cambios y se quita (pruebas/humo_windows.py).
+        run: python pruebas/humo_windows.py --puerto 8798 --de-verdad

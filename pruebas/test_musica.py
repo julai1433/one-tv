@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mac"))
 import cine
 from music import Music
 from playqueue import PlayQueue
+from store import Store
 from server import serve
 
 
@@ -14,7 +15,8 @@ def cancion(path, title, artist, album, track, codec="flac", album_artist=None, 
     path.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3"]
     if cover:
-        cmd += ["-f", "lavfi", "-i", "color=c=red:s=64x64:d=1", "-map", "0:a", "-map", "1:v", "-frames:v", "1",
+        # Un solo cuadro de portada (r=1:d=1) en vez de cortar con -frames:v, que también cortaba el audio a 0,02 s.
+        cmd += ["-f", "lavfi", "-i", "color=c=red:s=64x64:r=1:d=1", "-map", "0:a", "-map", "1:v",
                 "-c:v", "mjpeg", "-disposition:v", "attached_pic"]
     meta = {"title": title, "artist": artist, "album": album, "track": str(track), "date": "1999"}
     if album_artist:
@@ -84,6 +86,13 @@ class Musica(unittest.TestCase):
         other.prober = self.music.prober
         self.assertEqual(other.scan(), 4)   # lo leído se guardó en musica.json
         self.assertEqual(calls, [])
+
+    def test_recien_arrancado_ya_encuentra_las_canciones(self):
+        # Sin que nadie haya abierto Música (sin public()), «Escuchar en la TV» ya encuentra la canción.
+        fresh = Music([str(self.lib)], self.music.data_file, self.music.cache, log=lambda m: None)
+        self.music.scan()
+        tid = next(iter(self.music.public()["tracks"]))
+        self.assertEqual(fresh.track(tid)["id"], tid)
 
     def test_portada(self):
         self.music.scan()
@@ -164,6 +173,66 @@ class EnLaApp(unittest.TestCase):
         self.assertEqual(self.app.music_session(sid)["start"], 95)
         self.assertEqual(self.app.music_session("otra")["ok"], False)
         self.assertEqual(self.app.music_tv(["noexiste"])["ok"], False)
+
+    def _con_store(self):
+        d = Path(self._t.name)
+        self.app.store = Store(d / "progreso.json")
+        self.app.roku.player.return_value = None
+        self.app.roku.ip = "192.0.2.1"
+        self.app._player_lock = threading.Lock()
+        self.app._player = (0.0, None)
+        self.app.library = mock.Mock(items={})   # para /api/status
+        self.app.iphone_url = None
+        self.app.dubbing = mock.Mock(current=None)
+        return d
+
+    def test_la_musica_en_la_tv_se_ve_en_el_estado_y_no_deja_avance(self):
+        d = self._con_store()
+        tid = self.ids["Desire"]
+        httpd = serve(self.app, 0)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.shutdown)
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+        def post(path, body):
+            req = urllib.request.Request(base + path, json.dumps(body).encode(), {"Content-Type": "application/json"})
+            return json.loads(urllib.request.urlopen(req).read())
+
+        def status():
+            return json.loads(urllib.request.urlopen(base + "/api/status").read())["playing"]
+
+        self.assertIsNone(status())
+        post("/api/progress", {"id": "track:" + tid, "p": 90, "d": 200, "ev": "tick", "state": "play",
+                               "song": {"i": 1, "n": 3}})
+        p = status()
+        t = self.music.track(tid)
+        self.assertEqual((p["kind"], p["title"], p["state"]), ("music", f"{t['title']} · {t['artist']}", "play"))
+        self.assertEqual((p["position"], p["duration"], p["index"], p["count"], p["prev"], p["next"]),
+                         (90, 200, 1, 3, True, True))
+        self.assertEqual(p["poster"], f"/music/art/{t['album_id']}.jpg")
+        # primera y última de la lista: solo uno de los dos botones
+        post("/api/progress", {"id": "track:" + tid, "p": 1, "d": 200, "ev": "start", "song": {"i": 0, "n": 3}})
+        self.assertEqual((status()["prev"], status()["next"]), (False, True))
+        post("/api/progress", {"id": "track:" + tid, "p": 1, "d": 200, "ev": "tick", "state": "pause",
+                               "song": {"i": 2, "n": 3}})
+        self.assertEqual((status()["prev"], status()["next"], status()["state"]), (True, False, "pause"))
+        # nada de esto entra a «Seguir viendo» ni al historial, ni se guarda en disco
+        self.assertEqual(self.app.store.history(), [])
+        self.assertEqual(self.app.store.watching(), [])
+        self.assertFalse((d / "progreso.json").exists())
+        post("/api/progress", {"id": "track:" + tid, "p": 190, "d": 200, "ev": "end"})   # terminó la lista
+        self.assertIsNone(status())
+        self.assertEqual(self.app.store.history(), [])
+        # un video sigue guardándose como siempre
+        post("/api/progress", {"id": "peli", "p": 600, "d": 5000, "ev": "tick"})
+        self.assertEqual(self.app.store.watching(), [{"id": "peli", "p": 600}])
+
+    def test_ordenes_de_la_musica_en_la_tv(self):
+        self._con_store()
+        self.assertEqual(self.app.control("song", dir=1)["ok"], False)   # nada suena
+        self.app.store.report("track:" + self.ids["Desire"], 5, 200, "tick", song={"i": 0, "n": 2})
+        self.assertEqual(self.app.control("song", dir=1), {"ok": True})
+        self.app.roku.send.assert_called_with(cmd="song", dir=1)
 
     def test_una_cancion_a_la_fila(self):
         e = self.app.queue_entry("track", self.ids["Desire"])

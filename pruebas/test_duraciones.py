@@ -230,18 +230,17 @@ class Rellenador(Base):
         self.assertEqual(self.d.eta([{"id": vid(1), "duration": 0}]), 0)
 
     def test_el_hilo_de_fondo_pide_solo(self):
-        listo = threading.Event()
+        listo, guardado = threading.Event(), threading.Event()
 
         def fetch(ids):
             listo.set()
             return {v: 77 for v in ids}
-        f = DurationFiller(self.cache(), fetch, log=lambda m: None, gather=0)
+        # El aviso del registro llega después de guardar: hasta entonces no se borra la carpeta (si no, el hilo
+        # escribe mientras tearDown la borra y falla con la computadora ocupada).
+        f = DurationFiller(self.cache(), fetch, log=lambda m: guardado.set(), gather=0)
         f.want([vid(1)])
         self.assertTrue(listo.wait(5))
-        for _ in range(100):
-            if f.durations.get(vid(1)):
-                break
-            threading.Event().wait(0.02)
+        self.assertTrue(guardado.wait(5))
         self.assertEqual(f.durations.get(vid(1)), 77)
 
 

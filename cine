@@ -1,7 +1,39 @@
 #!/bin/bash
-# Arranca One TV. Uso: ./cine  |  ./cine instalar  |  ./cine catalogo
+# Arranca One TV. Uso: ./cine  |  ./cine configurar  |  ./cine autoarranque  |  ./cine estado  |  ./cine catalogo
+# Antes revisa que estén los programas que hacen falta y, si falta alguno, dice el comando exacto para instalarlo.
 DIR="$(cd "$(dirname "$0")" && pwd)"
-if ! command -v ffmpeg >/dev/null 2>&1; then
-  echo "✗ Falta ffmpeg. Instálalo con:  brew install ffmpeg"; exit 1
+
+if [ "$(uname -s)" = "Linux" ]; then
+  falta=()
+  if ! command -v python3 >/dev/null 2>&1; then
+    falta+=(python3 python3-venv)
+  elif ! python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
+    falta+=(python3-venv)   # sin esto no se puede instalar yt-dlp (YouTube) en su entorno aparte
+  fi
+  if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+    falta+=(ffmpeg)
+  fi
+  if [ ${#falta[@]} -gt 0 ]; then
+    echo "✗ Faltan programas que One TV necesita: ${falta[*]}"
+    if command -v apt-get >/dev/null 2>&1; then
+      echo "  Instálalos con este comando (te pide tu contraseña) y vuelve a correr ./cine:"
+      echo
+      echo "    sudo apt update && sudo apt install -y ${falta[*]}"
+    else
+      echo "  Instálalos con el instalador de programas de tu sistema y vuelve a correr ./cine."
+    fi
+    exit 1
+  fi
+else
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "✗ Falta python3. Instálalo con:  xcode-select --install"; exit 1
+  fi
+  if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "✗ Falta ffmpeg. Instálalo con:  brew install ffmpeg"; exit 1
+  fi
+fi
+
+if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+  echo "✗ One TV necesita Python 3.9 o más nuevo (tienes $(python3 --version 2>&1))."; exit 1
 fi
 exec python3 "$DIR/mac/cine.py" "$@"

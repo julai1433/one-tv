@@ -1,11 +1,17 @@
 # Cómo contribuir
 
-¡Gracias! Se reciben arreglos, mejoras y funciones nuevas, hechos por personas o por agentes. Para que un cambio
+¡Gracias! Se reciben arreglos, mejoras y funciones nuevas, hechos por personas o por agentes de IA. Para que un cambio
 entre rápido:
+
+- **Si trabajas con un agente de IA** (o eres uno), [AGENTS.md](AGENTS.md) tiene lo mismo en versión corta y práctica:
+  cómo está organizado el proyecto, cómo probarlo y las reglas.
+- **La meta**: que One TV se instale y se use sin ser una persona técnica. Si algo que cambias lo hace más difícil de
+  usar, mejor rediséñalo. Lo que viene está en la [hoja de ruta](docs/HOJA_DE_RUTA.md); ahí también se agradece ayuda
+  (por ejemplo, el servidor en Ubuntu o la app para Google TV).
 
 ## Antes de empezar
 
-- Para algo grande (una pantalla nueva, otra plataforma de TV, cambiar cómo se guarda algo), abre primero un *issue*
+- Para algo grande (una pantalla nueva, otro sistema para el servidor, otra plataforma de TV, cambiar cómo se guarda algo), abre primero un *issue*
   y cuéntalo: así no se duplica trabajo.
 - Lee [`docs/DETALLES.md`](docs/DETALLES.md) (cómo funciona por dentro) y [`DESIGN.md`](DESIGN.md) (colores, letras y
   piezas de la interfaz: todo color sale del bloque `:root` de la web y de `roku/components/Theme.brs`).
@@ -26,11 +32,12 @@ entre rápido:
 ```
 python3 -m unittest discover -s pruebas -p 'test_*.py'   # la computadora: sin red ni TV, unos 20 s (necesita ffmpeg)
 npx -y brighterscript@0                                  # el código de la app del Roku, sin TV (necesita Node)
+python3 pruebas/datos_demo.py                            # una biblioteca de ejemplo para ver la web, sin datos de nadie
 ```
 
 Si cambias la web o la app de la TV, revisa también lo que se ve: los `pruebas/web_*.py` la abren en Chrome sin
-ventana y dejan capturas; para la TV hace falta un Roku en modo desarrollador (`./cine instalar` y
-`pruebas/captura_tele.sh`). Más en [`pruebas/LEEME.md`](pruebas/LEEME.md).
+ventana y dejan capturas; para la app del Roku hace falta un Roku en modo desarrollador (`./cine instalar` y
+`pruebas/captura_tele.sh`). Si no tienes la TV, dilo en el pull request. Más en [`pruebas/LEEME.md`](pruebas/LEEME.md).
 
 ## El pull request
 

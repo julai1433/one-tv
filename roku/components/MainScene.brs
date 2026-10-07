@@ -145,6 +145,10 @@ sub onInputArgs()
         if m.player.visible then applyTracks(args)
         return
     end if
+    if cmd = "song"   ' la computadora pide la canción anterior (dir=-1) o la siguiente (dir=1) de lo que suena
+        if m.player.visible and m.cur <> invalid and m.cur.music = true and args.dir <> invalid then musicStep(Int(Val(args.dir)))
+        return
+    end if
     if cmd = "seek"
         if m.player.visible and args.t <> invalid then m.player.seekTo = Val(args.t)
         return

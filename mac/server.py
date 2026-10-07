@@ -4,6 +4,7 @@ portadas y subtítulos al Roku, y la página web para mandar cosas a la tele."""
 import json
 import re
 import shutil
+import socket
 import socketserver
 import subprocess
 import sys
@@ -13,6 +14,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import hostos
 from live import LiveError, decode_url, rewrite_playlist, unwrap_segment
 from mosaic import MOSAIC_ID
 from youtube import VIDEO_ID, YouTubeError
@@ -46,7 +48,8 @@ CONTENT_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quickt
 
 
 class KeepAwake:
-    """Evita que la Mac se duerma mientras se está viendo algo."""
+    """Evita que la computadora se duerma mientras se está viendo algo (macOS: caffeinate; Linux: systemd-inhibit;
+    Windows: winapi.KeepAwake, que reemplaza a esta clase allá)."""
 
     def __init__(self):
         self.proc = None
@@ -54,7 +57,7 @@ class KeepAwake:
         self.lock = threading.Lock()
 
     def poke(self):
-        if not CAFFEINATE:   # fuera de macOS no hay caffeinate: el sistema decide cuándo dormir
+        if not AWAKE_CMD:   # sin caffeinate ni systemd-inhibit: el sistema decide cuándo dormir
             return
         now = time.time()
         with self.lock:
@@ -62,12 +65,16 @@ class KeepAwake:
                 return
             if self.proc and self.proc.poll() is None:
                 self.proc.terminate()
-            self.proc = subprocess.Popen(["caffeinate", "-i", "-t", "900"],
-                                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            elif self.proc and self.proc.returncode > 0:
+                return   # el sistema no lo permitió (Linux sin permiso para pedirlo): no se insiste
+            self.proc = subprocess.Popen(AWAKE_CMD, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                         stderr=subprocess.DEVNULL)
             self.until = now + 900
 
 
-CAFFEINATE = shutil.which("caffeinate")
+AWAKE_CMD = hostos.keep_awake_command(900)
+if hostos.WINDOWS:   # sin comando: se le pide a Windows desde un hilo propio (mac/winapi.py)
+    from winapi import KeepAwake  # noqa: F811
 
 
 class Media:
@@ -79,6 +86,7 @@ class Media:
         self.posters.mkdir(parents=True, exist_ok=True)
         self.subs.mkdir(parents=True, exist_ok=True)
         self.poster_slots = threading.Semaphore(3)
+        self.aligned = None   # (video, subtítulo) -> el subtítulo alineado con la voz, o None (mac/subsync.py)
         self.locks = {}
         self.locks_lock = threading.Lock()
 
@@ -112,14 +120,15 @@ class Media:
         if sub is None:
             return None
         if "file" in sub:
-            raw = Path(sub["file"]).read_bytes()
+            src = (self.aligned(item["path"], sub["file"]) if self.aligned else None) or Path(sub["file"])
+            raw = src.read_bytes()
             for enc in ("utf-8-sig", "cp1252", "latin-1"):
                 try:
                     text = raw.decode(enc)
                     break
                 except UnicodeDecodeError:
                     continue
-            if Path(sub["file"]).suffix.lower() == ".vtt":
+            if src.suffix.lower() == ".vtt":
                 text = vtt_to_srt(text)
             return text.encode("utf-8")
         out = self.subs / f"{item['id']}-{key}.srt"
@@ -195,7 +204,7 @@ def make_handler(app):
         def _file(self, path, ctype=None, cache=False):
             """Entrega un archivo respetando 'Range' (el Roku pide la película a trozos)."""
             try:
-                f = open(path, "rb")
+                f = hostos.open_shared(path)   # en Windows, sin impedir que ffmpeg lo reemplace o se borre
             except OSError:
                 return self._send(404, b"no encontrado")
             with f:
@@ -395,7 +404,7 @@ def make_handler(app):
                 return self._send(200, got, CONTENT_TYPES[".m3u8"], {"Cache-Control": "no-cache"})
             if rel.endswith(".m3u8"):
                 try:
-                    body = got.read_bytes()
+                    body = hostos.read_shared(got)
                 except OSError:
                     return self._send(404, b"no encontrado")
                 return self._send(200, body, CONTENT_TYPES[".m3u8"], {"Cache-Control": "no-cache"})
@@ -551,6 +560,8 @@ def make_handler(app):
                 if path == "/api/tracks":
                     return self._json(app.control("tracks", device_id=body.get("device_id"),
                                                   audio=_int(body.get("audio")), sub=_int(body.get("sub"))))
+                if path == "/api/music/step":   # {dir: -1 | 1}: la canción anterior o la siguiente en la TV
+                    return self._json(app.control("song", dir=1 if (_int(body.get("dir")) or 1) > 0 else -1))
                 if path == "/api/seek":
                     return self._json(app.control("seek", t=_int(body.get("t"))))
                 if path == "/api/progress":  # reportes del Roku
@@ -558,7 +569,8 @@ def make_handler(app):
                     live = item.startswith("yt:") and bool((app.youtube.cached_info(item[3:]) or {}).get("live"))
                     app.store.report(item, float(body.get("p") or 0), float(body.get("d") or 0),
                                      body.get("ev", "tick"), _int(body.get("audio")), _int(body.get("sub")),
-                                     body.get("state", "play"), body.get("device", "tv"), live=live)
+                                     body.get("state", "play"), body.get("device", "tv"), live=live,
+                                     song=_song(body))
                     return self._json({"ok": True})
                 if path == "/api/import":  # lo que el Roku tenía guardado antes de esta versión
                     app.store.import_from_roku(body.get("progress"), body.get("prefs"))
@@ -652,7 +664,7 @@ def make_handler(app):
                     try:
                         if body.get("path"):   # solo un zip que esté en Descargas (no cualquier archivo)
                             p = Path(str(body["path"])).expanduser().resolve()
-                            downloads = (Path.home() / "Downloads").resolve()
+                            downloads = hostos.user_dir("DOWNLOAD").resolve()
                             if downloads not in p.parents:
                                 return self._json({"ok": False, "error": "El Takeout tiene que estar en Descargas."})
                             result = app.account.import_zip(str(p))
@@ -694,6 +706,15 @@ def _int(v):
     return None if v is None or v == "" else int(float(v))
 
 
+def _song(body):
+    """De un reporte de la TV con música: {"i": lugar de la canción (desde 0), "n": cuántas hay} o None."""
+    song = body.get("song")
+    try:
+        return {"i": int(song["i"]), "n": int(song["n"])} if isinstance(song, dict) else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _bool(v):
     """true/false de JSON; también «true»/«false» o 1/0, por si algún cliente los manda como texto."""
     if isinstance(v, str):
@@ -703,10 +724,15 @@ def _bool(v):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
+    # En Windows, «reusar la dirección» deja que dos programas escuchen en el mismo puerto (y no se nota que ya hay un
+    # servidor): allá se pide el puerto en exclusiva.
+    allow_reuse_address = not hostos.WINDOWS
 
     def server_bind(self):
         # Lo mismo que HTTPServer, pero sin preguntarle a la red el nombre de esta computadora (socket.getfqdn): en
         # algunas redes (un NAS, una máquina de pruebas) esa pregunta tarda minutos y el servidor no arranca.
+        if hostos.WINDOWS:
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         socketserver.TCPServer.server_bind(self)
         host, port = self.server_address[:2]
         self.server_name = host

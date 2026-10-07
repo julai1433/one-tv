@@ -21,6 +21,8 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import hostos
+
 AUDIO_EXTS = {".flac", ".m4a", ".mp3", ".aac", ".ogg", ".oga", ".opus", ".wav", ".aiff", ".aif", ".alac", ".wma", ".mp4"}
 DIRECT_CODECS = {"mp3", "aac"}          # se mandan tal cual: los abre todo (navegadores y Roku)
 PLAYLIST_EXTS = {".m3u", ".m3u8"}
@@ -239,6 +241,8 @@ class Music:
             }
 
     def track(self, tid):
+        if not self.scanned_at:   # recién arrancado: nadie ha abierto Música todavía (p. ej. «Escuchar en la TV» ya)
+            self.scan()
         with self.lock:
             t = self.tracks.get(tid)
             return dict(t) if t else None
@@ -343,9 +347,10 @@ class Music:
 
 def default_roots():
     """Dónde buscar música si config.json no lo dice: ~/Music/Biblioteca (o ~/Music/Music, la carpeta de Música de
-    Apple) si existen."""
-    home = Path.home() / "Music"
-    for cand in (home / "Biblioteca", home / "Music" / "Media.localized" / "Music", home / "Music" / "Media" / "Music"):
+    Apple) si existen. En Linux, la carpeta de música del usuario (~/Música o ~/Music) o su «Biblioteca»."""
+    home = hostos.user_dir("MUSIC")
+    cands = (home / "Biblioteca", home / "Music" / "Media.localized" / "Music", home / "Music" / "Media" / "Music")
+    for cand in cands if hostos.MAC else (home / "Biblioteca", home):
         if cand.is_dir():
             return [str(cand)]
     return []

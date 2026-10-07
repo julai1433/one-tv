@@ -36,7 +36,7 @@ def discover(timeout=3):
         while time.time() < end:
             try:
                 data, _ = s.recvfrom(2048)
-            except socket.timeout:
+            except (socket.timeout, ConnectionResetError):   # (Windows avisa así de un paquete que no llegó)
                 continue
             m = re.search(rb"(?i)LOCATION:\s*http://([\d.]+):8060", data)
             if m:
