@@ -1,0 +1,53 @@
+# Publica la imagen de Docker de One TV (Dockerfile) cada vez que se sube algo a main: para amd64 (casi todos los NAS)
+# y arm64 (NAS con ARM, Raspberry Pi), en el registro de GitHub del repositorio:
+#   ghcr.io/julai1433/one-tv:latest   y   ghcr.io/julai1433/one-tv:1.0.<número de corrida>
+# Usa el GITHUB_TOKEN que GitHub le da a cada flujo: no hace falta ningún secreto. Guía: docs/INSTALAR-DOCKER.md
+name: Imagen de Docker
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md", "androidtv/**", "windows/**", "menubar/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: imagen-docker
+  cancel-in-progress: false
+
+env:
+  IMAGEN: ghcr.io/${{ github.repository }}
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Nombres de la imagen
+        id: nombres
+        run: echo "imagen=${IMAGEN,,}" >> "$GITHUB_OUTPUT"   # el registro pide minúsculas
+      - name: Construir y publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.nombres.outputs.imagen }}:latest
+            ${{ steps.nombres.outputs.imagen }}:1.0.${{ github.run_number }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=One TV: tus películas, series, YouTube y música en la TV, desde tu NAS
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

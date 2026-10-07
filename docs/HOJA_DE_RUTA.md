@@ -29,7 +29,8 @@ instalarla y usarla? Por eso, siempre que se pueda:
 Una computadora con Ubuntu 24.04 (o una mini PC vieja que se queda siempre encendida) ya puede ser el servidor: arranca
 sola al encender, usa el chip de video cuando lo hay y el procesador cuando no. Guía:
 [INSTALAR-UBUNTU.md](INSTALAR-UBUNTU.md). Falta probarlo con chips de video reales (NVIDIA, Intel, AMD); después, otras
-versiones de Linux y, si hace falta, un contenedor (Docker) para quien ya lo use.
+versiones de Linux. Para quien tiene un NAS o ya usa Docker, hay una imagen **en prueba**:
+[INSTALAR-DOCKER.md](INSTALAR-DOCKER.md) (falta probarla en un NAS de verdad).
 
 ### 2. La app para Google TV y Android TV
 

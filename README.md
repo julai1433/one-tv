@@ -60,7 +60,9 @@ Hoy necesitas: una computadora con **macOS** (14 o más nuevo, con Python 3.9+ y
 **Windows 10 u 11** (en prueba) como servidor, un **Roku** en la misma red como TV, y tus videos. En cualquier otro aparato con
 navegador funciona la página web. Google TV y Android TV: ver la [hoja de ruta](docs/HOJA_DE_RUTA.md). La guía paso a
 paso, sin suponer nada: **[docs/INSTALAR.md](docs/INSTALAR.md)** (Mac), **[docs/INSTALAR-UBUNTU.md](docs/INSTALAR-UBUNTU.md)**
-(Ubuntu) y **[docs/INSTALAR-WINDOWS.md](docs/INSTALAR-WINDOWS.md)** (Windows, con un solo comando o doble clic).
+(Ubuntu), **[docs/INSTALAR-WINDOWS.md](docs/INSTALAR-WINDOWS.md)** (Windows, con un solo comando o doble clic) y
+**[docs/INSTALAR-DOCKER.md](docs/INSTALAR-DOCKER.md)** (un NAS o cualquier Linux con Docker, en prueba).
+
 > **¿Tu biblioteca ya la usa Plex, Jellyfin u otro programa (por ejemplo en un NAS)?** Por ahora no le des esa carpeta
 > a One TV: One TV acomoda (mueve y renombra) los videos que encuentra sueltos en su carpeta, y eso puede desordenar la
 > de otro programa. Ya viene una versión que la usa solo para leer, sin tocar nada.

@@ -11,6 +11,9 @@
 - Lo que en Windows no existe: «nice», SIGSTOP/SIGCONT, pkill, la carpeta «bin» de los entornos aparte (allá es
   «Scripts») y borrar o reemplazar un archivo que otro tiene abierto.
 
+- Dentro de un contenedor (Docker, en un NAS): lo dice la variable ONE_TV_CONTENEDOR=1 que pone la imagen. Datos,
+  caché, registro y config.json van todos en una carpeta (/datos, o la de ONE_TV_DATOS), que es el volumen.
+
 En macOS todo queda igual que antes de este módulo.
 """
 
@@ -31,6 +34,7 @@ WINDOWS = sys.platform == "win32"
 LINUX = sys.platform.startswith("linux")
 APP = "cine-roku"
 SYSTEM = "macOS" if MAC else "Windows" if WINDOWS else "Linux"
+CONTAINER = os.environ.get("ONE_TV_CONTENEDOR") == "1"   # dentro de la imagen de Docker (docs/INSTALAR-DOCKER.md)
 CINE = "cine" if WINDOWS else "./cine"   # cómo se escribe el comando en la ventana de comandos de este sistema
 
 
@@ -46,7 +50,12 @@ def _local_appdata():
     return Path(value) if os.path.isabs(value) else Path.home() / "AppData" / "Local"
 
 
-if MAC:
+if CONTAINER:
+    DATOS = Path(os.environ.get("ONE_TV_DATOS") or "/datos")
+    SERVICE_HOME = DATOS
+    CACHE = DATOS / "cache"
+    LOG = DATOS / "registro.log"
+elif MAC:
     CACHE = Path.home() / "Library" / "Caches" / APP
     SERVICE_HOME = Path.home() / "Library" / "Application Support" / APP
     LOG = Path.home() / "Library" / "Logs" / f"{APP}.log"
@@ -59,6 +68,10 @@ else:
     SERVICE_HOME = _xdg("XDG_DATA_HOME", ".local/share") / APP
     LOG = _xdg("XDG_STATE_HOME", ".local/state") / APP / f"{APP}.log"
 CONFIG_HOME = _xdg("XDG_CONFIG_HOME", ".config")
+CONFIG_FILE = SERVICE_HOME / "config.json" if CONTAINER else None   # None: el config.json de la carpeta del programa
+
+# Dentro del contenedor, lo que se puede poner con variables de entorno (ganan sobre config.json): variable -> clave.
+ENV_CONFIG = {"ROKU_IP": "roku_ip", "ROKU_PASSWORD": "roku_password", "PUERTO": "puerto", "CODIFICADOR": "codificador"}
 
 MAC_DIRS = {"DOWNLOAD": "Downloads", "VIDEOS": "Movies", "MUSIC": "Music"}
 LINUX_DIRS = {"DOWNLOAD": "Downloads", "VIDEOS": "Videos", "MUSIC": "Music"}
@@ -205,6 +218,8 @@ def install_hint(package):
 
 def guide():
     """La guía de instalación de este sistema."""
+    if CONTAINER:
+        return "docs/INSTALAR-DOCKER.md"
     return "docs/INSTALAR.md" if MAC else "docs/INSTALAR-WINDOWS.md" if WINDOWS else "docs/INSTALAR-UBUNTU.md"
 
 

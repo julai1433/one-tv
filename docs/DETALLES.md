@@ -237,7 +237,7 @@ vivo» (en Windows también Edge).
 - **Servidor en macOS y en Ubuntu 24.04** (otras versiones de Linux con systemd probablemente sirvan; no se han
   probado). En Linux: arranque con systemd del usuario, el chip de video se elige al arrancar probando un segundo
   (NVENC, Quick Sync, VAAPI; todavía sin probar con hardware real) o el procesador (`libx264`), sin ícono en la barra
-  de menú, y el servicio no puede impedir que un escritorio se suspenda. Docker: en la [hoja de ruta](HOJA_DE_RUTA.md).
+  de menú, y el servicio no puede impedir que un escritorio se suspenda. Docker (NAS): en prueba, ver [INSTALAR-DOCKER.md](INSTALAR-DOCKER.md).
 - **Servidor en Windows 10 y 11**: arranque con una tarea del Programador de tareas al iniciar sesión (no antes: para
   eso Windows pide guardar la contraseña de la cuenta), el chip de video se elige igual que en Linux (NVENC, Quick
   Sync, AMF; sin probar con hardware real), sin ícono en la barra de menú. Datos, caché y registro en

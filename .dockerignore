@@ -1,0 +1,14 @@
+# Lo que no entra a la imagen de Docker (ver Dockerfile): solo se copian mac/, roku/ y docker/.
+.git
+.github
+.claude
+config.json
+androidtv
+menubar
+windows
+herramientas
+docs
+pruebas
+LICENSES
+**/__pycache__
+**/.DS_Store

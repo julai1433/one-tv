@@ -16,7 +16,7 @@ One TV son tres piezas que hablan entre sí por tu propio Wi-Fi. No hay cuentas 
 
 | Pieza | Hoy | Pronto |
 |---|---|---|
-| **Servidor** (la computadora) | **macOS** y **Ubuntu 24.04** | **Windows 10 y 11** (en prueba) |
+| **Servidor** (la computadora) | **macOS** y **Ubuntu 24.04** | **Windows 10 y 11** y un **NAS con Docker** (en prueba) |
 | **App de la TV** | **Roku** | Google TV y Android TV (y Fire TV) |
 | **Web** | **Cualquier navegador**, en cualquier sistema | |
 
@@ -179,6 +179,11 @@ pantalla puede apagarse; mientras se ve algo, la computadora no se duerme sola).
 
 Ubuntu 24.04 tiene su propia guía, más corta: **[INSTALAR-UBUNTU.md](INSTALAR-UBUNTU.md)**. La parte de la TV (abajo)
 es igual.
+
+### Servidor en un NAS (Docker)
+
+Un NAS (Synology, Unraid, TrueNAS, QNAP) o cualquier Linux con Docker (**en prueba**) tiene su propia guía:
+**[INSTALAR-DOCKER.md](INSTALAR-DOCKER.md)**. La parte de la TV (abajo) es igual.
 
 ### Servidor en Windows
 

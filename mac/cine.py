@@ -58,7 +58,7 @@ from mylists import FAV, MyLists
 from music import Music, default_roots
 
 PROJECT = Path(__file__).resolve().parent.parent
-CONFIG = PROJECT / "config.json"
+CONFIG = hostos.CONFIG_FILE or PROJECT / "config.json"   # en Docker, dentro del volumen de datos
 # Carpetas: en macOS ~/Library/…; en Linux las de XDG (~/.cache, ~/.local/share, ~/.local/state). Ver mac/hostos.py.
 CACHE = hostos.CACHE
 
@@ -102,12 +102,24 @@ def say(msg):
 
 def load_config():
     cfg = {"carpetas": [hostos.default_library()], "puerto": 8765, "roku_ip": "", "roku_password": "", "titulos": {}}
+    if hostos.CONTAINER:   # lo que monta la imagen: /biblioteca y /musica; lo guardado sin conexión, en el volumen
+        cfg.update({"carpetas": ["/biblioteca"], "musica": ["/musica"], "descargas": [],
+                    "sin_conexion": str(hostos.SERVICE_HOME / "sin_conexion")})
     try:
         cfg.update(json.loads(CONFIG.read_text(encoding="utf-8-sig")))   # (el Bloc de notas de Windows puede ponerle BOM)
     except FileNotFoundError:
         pass
     except json.JSONDecodeError as e:
         sys.exit(f"✗ config.json tiene un error de formato: {e}")
+    if hostos.CONTAINER:   # las variables de entorno del contenedor ganan sobre config.json
+        for var, key in hostos.ENV_CONFIG.items():
+            value = os.environ.get(var, "").strip()
+            if not value:
+                continue
+            try:
+                cfg[key] = int(value) if key == "puerto" else value
+            except ValueError:
+                sys.exit(f"✗ La variable {var} no es válida: «{value}».")
     return cfg
 
 

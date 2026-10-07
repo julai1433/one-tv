@@ -120,3 +120,8 @@ Después de cualquier prueba que reproduzca algo en el servidor de verdad: resta
 - `windows\cine.ps1` se revisó aquí con PowerShell 7 en un contenedor de Linux (que se lea bien y el camino «falta
   ffmpeg → winget → arranca»); en Windows lo prueba el trabajo de GitHub.
 
+- `docker.sh [puerto 8802]` — la imagen de Docker (`Dockerfile`, `docker/entrypoint.sh`): la construye, la arranca en red puente
+  con tres videos de ejemplo montados de solo lectura y revisa `/api/status`, `/api/library`, un póster, la lista HLS, un
+  trozo convertido con libx264, que no escriba en la biblioteca, que corra sin ser «root» y que los datos sobrevivan al
+  recrear el contenedor. Necesita Docker; no lo corre GitHub. `test_docker.py` revisa sin Docker las carpetas del
+  contenedor y las variables de entorno (`ROKU_IP`, `ROKU_PASSWORD`, `PUERTO`).
