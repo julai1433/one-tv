@@ -247,6 +247,10 @@ dirección exacta la muestra `./cine estado`). Si tu TV o su aparato trae navega
 
 ## Parte 4. Tus películas y series
 
+> **¿Tu biblioteca ya la usa Plex, Jellyfin u otro programa (por ejemplo en un NAS)?** Por ahora no le des esa carpeta
+> a One TV: One TV acomoda (mueve y renombra) los videos que encuentra sueltos en su carpeta, y eso puede desordenar la
+> de otro programa. Ya viene una versión que la usa solo para leer, sin tocar nada.
+
 **En la carpeta de la biblioteca** (la del [primer arranque](#paso-3-primer-arranque); la lista de carpetas está en `config.json` → `carpetas`)
 puedes soltar los archivos de video tal cual: el programa los identifica (por internet, con IMDb y TVmaze, sin
 cuenta) y **los ordena solo**. Con esta forma:
