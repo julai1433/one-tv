@@ -9,7 +9,8 @@ herramientas y sin preguntar demasiado.
 teléfono, por la red de tu casa. Tiene tres piezas:
 
 1. **El servidor** (`mac/`): Python de la biblioteca estándar más `ffmpeg`, en una computadora de la casa. Hoy corre en macOS y en Ubuntu 24.04; Windows 10 y 11, en prueba (falta confirmarlo en un Windows real).
-2. **La app de la TV** (`roku/`): BrightScript/SceneGraph. Hoy solo Roku; Google TV y Android TV vienen después.
+2. **La app de la TV**: `roku/` (BrightScript/SceneGraph) y, en prueba, `androidtv/` para Google TV, Android TV y Fire
+   TV (Kotlin + Compose + Media3; ver [androidtv/LEEME.md](androidtv/LEEME.md)).
 3. **La web** (`mac/web/index.html`): una sola página que sirve el servidor a cualquier navegador.
 
 Lo que viene y en qué orden: [docs/HOJA_DE_RUTA.md](docs/HOJA_DE_RUTA.md).
@@ -30,10 +31,12 @@ la persona a tocar un archivo o a entender un concepto, rediseña la función, n
 | `mac/music.py`, `playqueue.py`, `mylists.py`, `store.py` | Música, la fila, las listas propias, el progreso |
 | `mac/dubbing.py`, `dubsync.py`, `intro.py`, `introsync.py` | Doblaje latino automático y «Saltar intro» |
 | `mac/roku.py` | Hablar con el Roku (encontrarlo, instalar la app, control remoto) |
+| `mac/teles.py`, `mac/apptv.py` | Las TV con Android (sus órdenes y a cuál TV se manda) y su app para «Downloader» en `/tv` |
 | `mac/hostos.py`, `encoders.py`, `linuxservice.py`, `windowsservice.py`, `winapi.py` | Lo que cambia según el sistema (macOS, Linux, Windows): carpetas, codificador de video, arranque automático |
 | `cine`, `cine.cmd`, `windows/` | Arrancar: `./cine` en macOS y Linux; `cine.cmd` (doble clic) y `windows/cine.ps1` en Windows, más su instalador |
 | `mac/web/` | La web (`index.html` y sus letras, íconos y `hls.min.js`) |
 | `roku/` | La app de la TV (`components/` pantallas y piezas, `source/` arranque, `fonts/`, `images/`) |
+| `androidtv/` | La app para Google TV, Android TV y Fire TV (`Estado.kt` teclas y estado, `ui/` pantallas, `control/` órdenes de la computadora); ver su `LEEME.md` |
 | `menubar/` | El ícono de la barra de menú de macOS (SwiftUI) |
 | `pruebas/` | `test_*.py` (sin red ni TV), `web_*.py` (Chrome sin ventana), herramientas; ver [pruebas/LEEME.md](pruebas/LEEME.md) |
 | `docs/` | [INSTALAR](docs/INSTALAR.md), [DETALLES](docs/DETALLES.md) (por dentro, seguridad), [HOJA_DE_RUTA](docs/HOJA_DE_RUTA.md) |

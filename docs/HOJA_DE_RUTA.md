@@ -32,12 +32,14 @@ sola al encender, usa el chip de video cuando lo hay y el procesador cuando no. 
 versiones de Linux. Para quien tiene un NAS o ya usa Docker, hay una imagen **en prueba**:
 [INSTALAR-DOCKER.md](INSTALAR-DOCKER.md) (falta probarla en un NAS de verdad).
 
-### 2. La app para Google TV y Android TV
+### 2. La app para Google TV y Android TV: primera versión, en prueba
 
-Cubre Chromecast con Google TV, Nvidia Shield, y las TV con Android TV o Google TV integrado. Se instalará con un
-archivo (APK), sin pasar por la tienda; la meta es que sea un solo paso, sin comandos. **La misma app servirá para Fire TV** (Amazon). Seguirá el mismo diseño de la TV de hoy ([DESIGN.md](../DESIGN.md)),
-con el control remoto como única forma de manejarla. Mientras tanto, cualquier TV o aparato con navegador puede abrir
-la página web de One TV.
+Cubre Chromecast con Google TV, Nvidia Shield, y las TV con Android TV o Google TV integrado; **la misma app sirve para
+Fire TV** (Amazon). Se instala desde la propia TV con «Downloader», escribiendo una dirección corta que da la
+computadora (`http://<computadora>:8765/tv`), sin tienda ni comandos: [INSTALAR-GOOGLE-TV.md](INSTALAR-GOOGLE-TV.md).
+Tiene el mismo diseño que la del Roku ([DESIGN.md](../DESIGN.md)) y la web la maneja igual («Ver en la TV», pausa,
+avance, idioma). Falta probarla en TV de verdad y lo que la del Roku tiene de más (buscar, En vivo, canales de
+YouTube…).
 
 ### 3. El servidor en Windows: en prueba
 

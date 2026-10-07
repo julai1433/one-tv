@@ -36,12 +36,13 @@ class Store:
         tmp.replace(self.path)
 
     def report(self, item_id, position, duration, event, audio=None, sub=None, state="play", device="tv", live=False,
-               song=None):
+               song=None, device_id=None):
         """El Roku (o un navegador) avisa: event = start | tick | stop | end.
         Solo lo de la tele cuenta como "lo que se está viendo en la tele". live: una transmisión en vivo de YouTube,
         que no se retoma: entra al historial como vista (p = 0) y nunca a «Seguir viendo».
         La música (ids «track:…») sí cuenta como «lo que suena ahora» —song = {"i": lugar, "n": cuántas}—, pero nunca deja
-        avance guardado: no entra a «Seguir viendo» ni al historial."""
+        avance guardado: no entra a «Seguir viendo» ni al historial.
+        device_id: qué TV lo reporta (el Roku o una con Android; las órdenes de la web van a esa, mac/teles.py)."""
         now = time.time()
         with self.lock:
             if device == "tv":
@@ -50,7 +51,7 @@ class Store:
                         self.now = None
                 else:
                     self.now = {"id": item_id, "p": position, "d": duration, "state": state,
-                                "audio": audio, "sub": sub, "t": now}
+                                "audio": audio, "sub": sub, "t": now, "device_id": device_id}
                     if song:
                         self.now["song"] = song
             if item_id.startswith("track:"):

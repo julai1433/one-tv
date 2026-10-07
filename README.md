@@ -6,7 +6,8 @@ navegador los muestran, por tu propio Wi-Fi. Sin cuentas, sin nube y sin suscrip
 lo que se ve es tuyo (One TV no trae ni descarga contenido).
 
 > **Qué funciona hoy**: el servidor corre en **macOS** y en **Ubuntu 24.04** (en **Windows 10 y 11**, en prueba), y la app de TV
-> es para **Roku**; la **web** funciona en cualquier navegador. Google TV y Android TV (y Fire TV) vienen después: ver la
+> es para **Roku**, y para **Google TV, Android TV y Fire TV** en su primera versión, en prueba
+> ([guía](docs/INSTALAR-GOOGLE-TV.md)); la **web** funciona en cualquier navegador. Lo que viene: la
 > [hoja de ruta](docs/HOJA_DE_RUTA.md). La meta de todo el proyecto: que cualquiera lo instale y lo use, sin saber de
 > programación.
 
@@ -59,7 +60,8 @@ lo que se ve es tuyo (One TV no trae ni descarga contenido).
 
 Hoy necesitas: una computadora con **macOS** (14 o más nuevo, con Python 3.9+ y ffmpeg 7+), con **Ubuntu 24.04** o con
 **Windows 10 u 11** (en prueba) como servidor, un **Roku** en la misma red como TV, y tus videos. En cualquier otro aparato con
-navegador funciona la página web. Google TV y Android TV: ver la [hoja de ruta](docs/HOJA_DE_RUTA.md). La guía paso a
+navegador funciona la página web. **Google TV, Android TV y Fire TV** (primera versión, en prueba): se instala con
+«Downloader», sin cables, con **[docs/INSTALAR-GOOGLE-TV.md](docs/INSTALAR-GOOGLE-TV.md)**. La guía paso a
 paso, sin suponer nada: **[docs/INSTALAR.md](docs/INSTALAR.md)** (Mac), **[docs/INSTALAR-UBUNTU.md](docs/INSTALAR-UBUNTU.md)**
 (Ubuntu), **[docs/INSTALAR-WINDOWS.md](docs/INSTALAR-WINDOWS.md)** (Windows, con un solo comando o doble clic) y
 **[docs/INSTALAR-DOCKER.md](docs/INSTALAR-DOCKER.md)** (un NAS o cualquier Linux con Docker, en prueba).
@@ -146,7 +148,8 @@ de tu casa; no abras su puerto a internet (para verlo fuera, Tailscale). Más en
 Ya funciona: el servidor en **Ubuntu** ([guía](docs/INSTALAR-UBUNTU.md)). En prueba: el servidor en **Windows** ([guía](docs/INSTALAR-WINDOWS.md)).
 Lo que sigue, en este orden (detalles y el porqué en [docs/HOJA_DE_RUTA.md](docs/HOJA_DE_RUTA.md)):
 
-1. La app para **Google TV y Android TV** (la misma servirá para **Fire TV**).
+1. La app para **Google TV, Android TV y Fire TV**: primera versión, en prueba ([guía](docs/INSTALAR-GOOGLE-TV.md));
+   falta lo que la app del Roku tiene de más (buscar, En vivo, canales de YouTube…).
 2. **Compartir tu biblioteca con aparatos fuera de tu red** (familia y amigos, también fuera de casa).
 
 Además: **Apple TV**, y **varios videos a la vez** en la misma pantalla (está hecho, pero archivado hasta pulirlo). Siempre
@@ -182,8 +185,9 @@ One TV no está afiliado a ellos.
 One TV is a home media server for your own movies, TV shows and music, plus ad-free YouTube. A server program runs on
 a computer at home; a TV app and any web browser show everything over your own Wi-Fi. No accounts or cloud: everything
 stays between your devices. **Today the server runs on macOS and Ubuntu 24.04 (Windows 10/11 support is being tested), and the TV app is for
-Roku** (sideloaded in developer mode); the web page works in any browser. Next, in order: a Google TV / Android TV app
-(also for Fire TV) and sharing your library outside your network (see `docs/HOJA_DE_RUTA.md`). Movies and
+Roku** (sideloaded in developer mode), with a first test version for Google TV / Android TV / Fire TV installed with
+the Downloader app (`docs/INSTALAR-GOOGLE-TV.md`); the web page works in any browser. Next: sharing your library outside
+your network (see `docs/HOJA_DE_RUTA.md`). Movies and
 shows get posters, synopses, resume points, automatic organizing of finished downloads, on-the-fly transcoding (the
 computer's video chip when there is one), automatic Latin Spanish dub syncing from another release, intro skipping and
 subtitles. YouTube works without signing in (import a Google Takeout for subscriptions, playlists and history), always

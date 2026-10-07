@@ -36,6 +36,8 @@ import linuxservice
 import windowsservice
 from library import Library
 from roku import Roku, build_channel_zip, discover, local_ip_towards
+from teles import AndroidTv, Teles
+from apptv import AppTv
 from server import KeepAwake, Media, serve
 from store import Store
 from live import LiveChannels, LiveError, set_sign_key
@@ -169,6 +171,12 @@ class App:
         # Trozos de YouTube y de canales en vivo que el mosaico pide antes que ffmpeg (mac/segcache.py).
         self.segments = SegmentCache()
         self.roku = None
+        self.roku_name = ""
+        # Las TV que se manejan desde aquí: el Roku y las TV con Android con One TV abierta (mac/teles.py).
+        self.teles = Teles()
+        # La app para Google TV, Android TV y Fire TV que se instala con «Downloader» desde /tv (mac/apptv.py).
+        self.app_tv = AppTv(CACHE / "app-tv", PROJECT / "androidtv" / "app" / "build" / "outputs" / "apk" / "release",
+                            log=say)
         self.server_url = ""
         self.installed_url = None
         self.install_waiting = False
@@ -244,7 +252,8 @@ class App:
         if not self.roku or self.roku.ip != ip:
             self.roku = Roku(ip, self.cfg.get("roku_password", ""))
             try:
-                say(f"✓ {self.roku.device_name()} en {ip}")
+                self.roku_name = self.roku.device_name()
+                say(f"✓ {self.roku_name} en {ip}")
             except OSError:
                 return False
         try:
@@ -292,16 +301,17 @@ class App:
         """Reproduce en la tele. audio/sub: índice en las listas del catálogo (sub -1 = sin
         subtítulos); start: segundos o None para seguir donde iba. device_id: el aparato que lo pide
         (para recordar SU idioma)."""
-        if not self.roku:
-            return {"ok": False, "error": "No encontré el Roku en la red."}
+        tele = self._tele()
+        if not tele:
+            return {"ok": False, "error": self._sin_tele()}
         item = self.library.get(item_id)
         if not item:
             return {"ok": False, "error": "Ese video ya no está en la biblioteca."}
         try:
-            self.roku.play(item_id, self.server_url, audio=audio, sub=sub,
-                           start=None if start is None else int(start))
+            tele.play(item_id, self.server_url, audio=audio, sub=sub,
+                      start=None if start is None else int(start))
         except OSError as e:
-            return {"ok": False, "error": f"El Roku no respondió ({e})."}
+            return {"ok": False, "error": self._no_respondio(tele, e)}
         self.remember_tracks(item, audio, sub, device_id)
         return {"ok": True}
 
@@ -330,15 +340,16 @@ class App:
         return next(c for c in self.live.public() if c["id"] == cid)
 
     def live_play(self, cid):
-        if not self.roku:
-            return {"ok": False, "error": "No encontré el Roku en la red."}
+        tele = self._tele()
+        if not tele:
+            return {"ok": False, "error": self._sin_tele()}
         if not self.live.get(cid):
             return {"ok": False, "error": "Ese canal ya no existe."}
         try:
-            self.roku.play(f"live:{cid}", self.server_url)
+            tele.play(f"live:{cid}", self.server_url)
             return {"ok": True}
         except OSError as e:
-            return {"ok": False, "error": f"El Roku no respondió ({e})."}
+            return {"ok": False, "error": self._no_respondio(tele, e)}
 
     # ---------- YouTube sin anuncios ----------
 
@@ -417,18 +428,19 @@ class App:
         vid = video_id(vid)
         if not vid:
             return {"ok": False, "error": "Ese no parece un video de YouTube."}
-        if not self.roku:
-            return {"ok": False, "error": "No encontré el Roku en la red."}
+        tele = self._tele()
+        if not tele:
+            return {"ok": False, "error": self._sin_tele()}
         try:
             info = self.youtube.resolve(vid)["info"]
             self.youtube.remember(info)
-            self.roku.play(f"yt:{vid}", self.server_url)
+            tele.play(f"yt:{vid}", self.server_url)
             say(f"▶ YouTube en la TV: {info['title']}")
             return {"ok": True, "title": info["title"]}
         except YouTubeError as e:
             return {"ok": False, "error": str(e)}
         except OSError as e:
-            return {"ok": False, "error": f"El Roku no respondió ({e})."}
+            return {"ok": False, "error": self._no_respondio(tele, e)}
 
     # ---------- varios a la vez: la computadora arma un solo video (mac/mosaic.py) ----------
 
@@ -499,16 +511,19 @@ class App:
             _, _, _, focus = parse_request(body)   # antes de buscar el Roku: los datos malos se dicen primero
         except MosaicError as e:
             return {"ok": False, "error": str(e)}
-        if not self.roku:
-            return {"ok": False, "error": "No encontré el Roku en la red."}
+        tele = self._tele()
+        if not tele:
+            return {"ok": False, "error": self._sin_tele()}
+        if isinstance(tele, AndroidTv):
+            return {"ok": False, "error": f"«Varios a la vez» todavía solo funciona en el Roku (no en «{tele.nombre}»)."}
         result = self.mosaic_start(body)
         if not result["ok"]:
             return result
         try:
-            self.roku.play(f"mosaic:{result['id']}", self.server_url, focus=focus)
+            tele.play(f"mosaic:{result['id']}", self.server_url, focus=focus)
         except OSError as e:
             self.mosaics.stop(result["id"])
-            return {"ok": False, "error": f"El Roku no respondió ({e})."}
+            return {"ok": False, "error": self._no_respondio(tele, e)}
         say("▶ Varios a la vez en la TV: " + " + ".join(result["tracks"]))
         return result
 
@@ -538,8 +553,9 @@ class App:
         tracks = [t for t in tracks if self.music.track(t)]
         if not tracks:
             return {"ok": False, "error": "Esas canciones ya no están en tu música."}
-        if not self.roku:
-            return {"ok": False, "error": "No encontré el Roku en la red."}
+        tele = self._tele()
+        if not tele:
+            return {"ok": False, "error": self._sin_tele()}
         index = min(max(int(index or 0), 0), len(tracks) - 1)
         if shuffle:
             first = tracks[index]
@@ -552,9 +568,9 @@ class App:
         self.music.prepare_next(tracks[index], 0)
         threading.Thread(target=self.music.audio, args=(tracks[index],), daemon=True).start()   # ya convirtiéndose
         try:
-            self.roku.play(f"music:{sid}", self.server_url)
+            tele.play(f"music:{sid}", self.server_url)
         except OSError as e:
-            return {"ok": False, "error": f"El Roku no respondió ({e})."}
+            return {"ok": False, "error": self._no_respondio(tele, e)}
         t = self.music.track(tracks[index])
         say(f"♪ Música en la TV: {t['title']} · {t['artist']} ({len(tracks)} canciones)")
         return {"ok": True, "count": len(tracks)}
@@ -827,6 +843,9 @@ class App:
                     self.roku.send(cmd="refresh")
             except OSError:
                 pass
+        teles = getattr(self, "teles", None)
+        if teles:
+            teles.a_todas({"cmd": "refresh"})   # las TV con Android con One TV abierta
         threading.Thread(target=send, daemon=True).start()
 
     def history(self, limit=150):
@@ -1257,6 +1276,10 @@ class App:
                 say(f"⚠ yt-dlp: no se pudo actualizar ({e})")
             time.sleep(YTDLP_EVERY)
 
+    def keep_tv_app_fresh(self):
+        """Tarea automática: la app para Google TV / Android TV / Fire TV más nueva de GitHub, una vez al día."""
+        self.app_tv.mantener_al_dia()
+
     # ---------- subtítulos desde internet ----------
 
     def subs_search(self, item_id, lang):
@@ -1318,12 +1341,13 @@ class App:
     def control(self, cmd, device_id=None, **params):
         """Órdenes para lo que se está viendo: cmd = tracks (audio/sub) o seek (t)."""
         now = self.store.now_playing()
-        if not self.roku or not now:
+        tele = self._tele(now) if now else None   # a la TV donde se está viendo
+        if not tele or not now:
             return {"ok": False, "error": "No hay nada reproduciéndose en la TV."}
         try:
-            self.roku.send(cmd=cmd, **{k: v for k, v in params.items() if v is not None})
+            tele.send(cmd=cmd, **{k: v for k, v in params.items() if v is not None})
         except OSError as e:
-            return {"ok": False, "error": f"El Roku no respondió ({e})."}
+            return {"ok": False, "error": self._no_respondio(tele, e)}
         if cmd == "tracks":
             item = self.library.get(now["id"])
             if item:
@@ -1334,6 +1358,9 @@ class App:
 
     def _player_state(self):
         """Posición exacta según el Roku (se pregunta como mucho una vez por segundo)."""
+        now = self.store.now_playing()
+        if now and not self._del_roku(now):
+            return None   # lo que suena está en una TV con Android: su posición llega en sus reportes
         with self._player_lock:
             at, value = self._player
             if time.time() - at < 1.0:
@@ -1395,19 +1422,67 @@ class App:
     def remote_key(self, key):
         allowed = {"Play", "Rev", "Fwd", "InstantReplay", "Back", "Home", "Select",
                    "Up", "Down", "Left", "Right", "Info"}
-        if not self.roku or key not in allowed:
+        now = self.store.now_playing() if getattr(self, "store", None) else None
+        tele = self._tele(now)   # a la TV donde se está viendo (o, si nada suena, a la elegida)
+        if not tele or key not in allowed:
             return {"ok": False}
         try:
-            self.roku.key(key)
+            tele.key(key)
             return {"ok": True}
         except OSError:
             return {"ok": False}
 
     def status(self):
-        return {"roku": self.roku.ip if self.roku else None, "server": self.server_url,
-                "items": len(self.library.items), "iphone": self.iphone_url, "playing": self.playing(),
-                "queue": len(self.queue.items()), "dubbing": self.dubbing.current,
-                "auto_subs": self.auto_subs.status() if getattr(self, "auto_subs", None) else None}
+        out = {"roku": self.roku.ip if self.roku else None, "server": self.server_url,
+               "items": len(self.library.items), "iphone": self.iphone_url, "playing": self.playing(),
+               "queue": len(self.queue.items()), "dubbing": self.dubbing.current,
+               "auto_subs": self.auto_subs.status() if getattr(self, "auto_subs", None) else None}
+        teles = getattr(self, "teles", None)
+        if teles:   # las TV que se pueden usar (con más de una, la web deja elegir a cuál mandar)
+            out["teles"] = teles.lista(self.roku, getattr(self, "roku_name", ""))
+            now = self.store.now_playing() if out["playing"] else None
+            if now and len(out["teles"]) > 1:   # con varias TV, en cuál se está viendo («En la TV · Sala»)
+                tele = self._tele(now)
+                out["playing"]["donde"] = tele.nombre if isinstance(tele, AndroidTv) else (self.roku_name or "Roku")
+        return out
+
+    # ---------- a qué TV: el Roku o una con Android (mac/teles.py) ----------
+
+    def _tele(self, now=None):
+        """La TV a la que van las órdenes. Con `now` (lo que se está viendo), la que lo reproduce; si no, la elegida:
+        la que se usó por última vez. Sin TV con Android, el Roku, como siempre. None si no hay ninguna."""
+        teles = getattr(self, "teles", None)
+        if teles is None:
+            return self.roku
+        if now:
+            return teles.de(now.get("device_id"), self.roku)
+        return teles.destino(self.roku)
+
+    def _del_roku(self, now):
+        teles = getattr(self, "teles", None)
+        return teles is None or not teles.es_android(now.get("device_id"))
+
+    def _sin_tele(self):
+        teles = getattr(self, "teles", None)
+        if teles and teles.vistas:
+            return "No encontré la TV: abre One TV en la TV y prueba otra vez."
+        return "No encontré el Roku en la red."
+
+    def _no_respondio(self, tele, e):
+        if isinstance(tele, AndroidTv):
+            return f"La TV «{tele.nombre}» no respondió: abre One TV en esa TV y prueba otra vez."
+        return f"El Roku no respondió ({e})."
+
+    def tv_choose(self, ident):
+        """La web eligió a qué TV mandar «Ver en la TV»."""
+        if not self.teles.elegir(str(ident or ""), self.roku):
+            return {"ok": False, "error": "Esa TV ya no está conectada."}
+        return {"ok": True, "teles": self.teles.lista(self.roku, self.roku_name)}
+
+    def tv_app(self):
+        """La app para Google TV / Android TV / Fire TV que se ofrece en /tv, y la dirección para escribir en Downloader."""
+        base = self.server_url or hostos.lan_url(self.cfg["puerto"]) or f"http://localhost:{self.cfg['puerto']}"
+        return {"ok": True, **self.app_tv.info(), "direccion": base + "/tv"}
 
     def warm_up(self):
         items = list(self.library.items.values())
@@ -1464,6 +1539,7 @@ def run_server(background):
     threading.Thread(target=app.auto_subs.watch, daemon=True).start()   # subtítulos que se bajan solos
     threading.Thread(target=app.watch_roku, daemon=True).start()
     threading.Thread(target=app.keep_ytdlp_fresh, daemon=True).start()
+    threading.Thread(target=app.keep_tv_app_fresh, daemon=True).start()
     threading.Thread(target=app.keep_library_fresh, daemon=True).start()
     threading.Thread(target=app.watch_downloads, daemon=True).start()
     threading.Thread(target=app.keep_account_fresh, daemon=True).start()

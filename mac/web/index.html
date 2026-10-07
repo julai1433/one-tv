@@ -150,6 +150,7 @@
   .tv[data-state=off] .tv-w { color: var(--guinda-claro); }
   .tv-info { grid-column: 1 / -1; margin-top: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .tv-info.err { color: var(--guinda-claro); }
+  .tv-pick { grid-column: 1 / -1; margin-top: 12px; }   /* con más de una TV: a cuál va lo que se elige */
   .tv.compact > .i { width: 20px; height: 20px; }
   .tv.compact .tv-w { font-size: 20px; }
 
@@ -505,6 +506,9 @@
   .set-t { font-weight: 700; }
   .set-d { color: var(--text-soft); font-size: 14px; margin-top: 4px; }
   .set .seg2, .set .tv { margin-top: 16px; }
+  .set ol { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 8px; color: var(--text-soft); font-size: 14px; line-height: 1.45; }
+  .tv-url { margin: 8px 0 0; font-size: min(28px, 5.2vw); font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums;
+            overflow-wrap: anywhere; user-select: all; }
 
   /* ---------- campos de texto: sin caja, línea inferior, letra grande, cursor limón ---------- */
   .tfield { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 680px; border-bottom: 2px solid var(--edge); }
@@ -1538,6 +1542,30 @@ function pageSaved() {
     main.append(ls);
   }
 }
+// Ajustes generales → Instalar en Google TV / Android TV / Fire TV con «Downloader» (la computadora ofrece la app en /tv).
+let tvApp = null, tvAppAsked = false;   // /api/tv/app: {hay, version, direccion}
+function tvAppSetting() {
+  const box = h("div", { class: "set", id: "instalar-tv" }, h("div", { class: "set-t" }, "Instalar en Google TV, Android TV o Fire TV"),
+    h("div", { class: "set-d" }, "Con la app «Downloader», desde la propia TV:"),
+    h("ol", null,
+      h("li", null, "En la TV, instala «Downloader» desde la tienda de apps (en Fire TV, búscala con la lupa)."),
+      h("li", null, "Dale permiso para instalar apps. En Google TV: Configuración › Sistema › Información, toca 7 veces «Compilación del SO de Android TV»; luego Configuración › Apps › Seguridad y restricciones › Fuentes desconocidas › Downloader. En Fire TV: Configuración › Mi Fire TV › Acerca de, toca 7 veces el nombre de tu Fire TV; luego Mi Fire TV › Opciones para desarrolladores › Instalar apps desconocidas › Downloader."),
+      h("li", null, "Abre Downloader y escribe esta dirección:")));
+  if (!tvApp) {
+    if (!tvAppAsked) {
+      tvAppAsked = true;
+      getJSON("/api/tv/app").then(x => { tvApp = x; if (route().name === "fila") render(); })
+        .catch(() => {}).finally(() => { tvAppAsked = false; });
+    }
+    box.append(h("p", { class: "hint" }, "Cargando…"));
+    return box;
+  }
+  box.append(h("p", { class: "tv-url" }, tvApp.direccion),
+    h("p", { class: "set-d" }, "Toca «Instalar» y luego «Abrir»: One TV encuentra sola esta computadora. Para actualizarla, lo mismo (la app avisa cuando hay una versión nueva)."));
+  box.append(tvApp.hay ? h("p", { class: "hint" }, "Versión " + (tvApp.version || "de prueba") + ".")
+    : h("p", { class: "hint err" }, "Esta computadora todavía no tiene la app: la baja sola de internet en cuanto esté publicada. Prueba más tarde."));
+  return box;
+}
 // Ajustes generales → Sin conexión: lo que ocupa y el enlace a lo guardado.
 function offlineSetting() {
   const box = h("div", { class: "set", id: "sinconexion" }, h("div", { class: "set-t" }, "Sin conexión"),
@@ -1798,7 +1826,39 @@ function tvStatus(id, o = {}) {
   const el = h("div", { class: "tv" + (o.compact ? " compact" : ""), id, role: o.live === false ? null : "status" },
     icon("tv"), h("span", { class: "tv-k" }, "TV"), h("span", { class: "tv-w" }), o.info ? h("span", { class: "tv-info" }) : null);
   paintTv(el);
+  paintTvPick(el);
   return el;
+}
+// Con más de una TV (un Roku y una con Android, o varias): a cuál va «Ver en la TV». La computadora elige sola la que
+// se usó por última vez; aquí se cambia. Con una sola TV no se ve nada nuevo.
+let tvList = [];
+function paintTvPick(el) {
+  if (el.classList.contains("compact")) return;   // en el encabezado del teléfono no cabe: va en Ajustes generales
+  let box = el.querySelector(".tv-pick");
+  if (tvList.length < 2) return box && box.remove();
+  if (!box) {
+    const sel = h("select", { onchange: async () => {
+      const r = await post("/api/tv/elegir", { id: sel.value });
+      if (r.ok) toast("Lo que elijas se verá en «" + sel.selectedOptions[0].textContent + "»");
+      poll();
+    } });
+    box = h("label", { class: "field tv-pick" }, "Lo que elijas se ve en", sel);
+    el.append(box);
+  }
+  const sel = box.querySelector("select");
+  const key = tvList.map(t => t.id + "|" + t.nombre).join("\n");
+  if (sel.dataset.key !== key) {
+    sel.replaceChildren(...tvList.map(t => h("option", { value: t.id }, t.nombre)));
+    sel.dataset.key = key;
+  }
+  const chosen = tvList.find(t => t.elegida);
+  if (chosen && document.activeElement !== sel) sel.value = chosen.id;
+}
+function setTeles(list) {
+  list = list || [];
+  if (JSON.stringify(list) === JSON.stringify(tvList)) return;
+  tvList = list;
+  document.querySelectorAll(".tv").forEach(paintTvPick);
 }
 function paintTv(el) {
   el.dataset.state = tv.state;
@@ -3146,6 +3206,7 @@ function pageQueue(r) {
       h("div", { class: "set-d" }, "En los videos de YouTube con capítulos, su nombre aparece unos segundos al empezar cada uno:"), chapSeg),
     hiddenChannelsSetting(),
     offlineSetting(),
+    tvAppSetting(),
     // En la laptop el estado ya está abajo de la barra lateral; en el teléfono, aquí va con el conteo y el doblaje.
     h("div", { class: "set only-phone" }, h("div", { class: "set-t" }, "Estado"), tvStatus("tv-ajustes", { info: true, live: false })))));
 
@@ -4383,7 +4444,7 @@ function showNowPlaying(p) {
   if (document.activeElement !== $("np-audio")) $("np-audio").value = String(p.audio ?? 0);
   if (document.activeElement !== $("np-sub")) $("np-sub").value = String(p.sub ?? -1);
   const word = { play: "reproduciendo", pause: "en pausa", buffer: "cargando…" }[p.state] || "";
-  $("mini-state").textContent = "En la TV" + (word ? " · " + word : "");
+  $("mini-state").textContent = (p.donde ? "En «" + p.donde + "»" : "En la TV") + (word ? " · " + word : "");
   const langs = music ? [p.album] : isYt ? ["YouTube"] : [names.audios[p.audio ?? 0], p.sub >= 0 && names.subs[p.sub] ? "subtítulos en " + lower1(names.subs[p.sub]) : names.subs.length ? "sin subtítulos" : ""];
   $("rm-state").textContent = [word ? word[0].toUpperCase() + word.slice(1) : "", ...langs].filter(Boolean).join(" · ");
   const playing = p.state === "play";
@@ -4585,8 +4646,9 @@ async function poll() {
   if (document.visibilityState !== "visible") return;
   try {
     const s = await getJSON("/api/status");
-    setTv(s.roku ? "ok" : "off", [plural(s.items, "video", "videos") + " en la biblioteca", s.dubbing ? `preparando el doblaje de «${s.dubbing}»` : "", s.auto_subs?.text || ""]
+    setTv(s.roku || (s.teles || []).length ? "ok" : "off", [plural(s.items, "video", "videos") + " en la biblioteca", s.dubbing ? `preparando el doblaje de «${s.dubbing}»` : "", s.auto_subs?.text || ""]
       .filter(Boolean).join(" · "));
+    setTeles(s.teles);
     if (lib && dubbingWas && !s.dubbing) loadLibrary();   // terminó un doblaje: la ficha ya trae la pista
     dubbingWas = s.dubbing;
     if (!dragging) showNowPlaying(s.playing);

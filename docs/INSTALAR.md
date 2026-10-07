@@ -14,10 +14,10 @@ One TV son tres piezas que hablan entre sí por tu propio Wi-Fi. No hay cuentas 
 
 ## Qué funciona hoy
 
-| Pieza | Hoy | Pronto |
+| Pieza | Hoy | En prueba |
 |---|---|---|
-| **Servidor** (la computadora) | **macOS** y **Ubuntu 24.04** | **Windows 10 y 11** y un **NAS con Docker** (en prueba) |
-| **App de la TV** | **Roku** | Google TV y Android TV (y Fire TV) |
+| **Servidor** (la computadora) | **macOS** y **Ubuntu 24.04** | **Windows 10 y 11** y un **NAS con Docker** |
+| **App de la TV** | **Roku** | **Google TV, Android TV y Fire TV** (primera versión, [guía](INSTALAR-GOOGLE-TV.md)) |
 | **Web** | **Cualquier navegador**, en cualquier sistema | |
 
 Los detalles y el orden están en la [hoja de ruta](HOJA_DE_RUTA.md). Esta guía tiene **todos** los pasos de macOS y
@@ -38,7 +38,7 @@ Tiempo aproximado: 20 minutos, casi todo esperando descargas.
   - [Ubuntu](#servidor-en-ubuntu) y [Windows](#servidor-en-windows)
 - [Parte 3. La TV](#parte-3-la-tv)
   - [Roku](#tv-roku): [modo desarrollador](#paso-6-activar-el-modo-desarrollador-del-roku), [instalar la app](#paso-7-instalar-la-app-en-el-roku)
-  - [Google TV, Android TV y Fire TV](#tv-google-tv-android-tv-y-fire-tv-pronto) y [sin app de TV](#sin-app-de-tv-solo-la-web)
+  - [Google TV, Android TV y Fire TV](#tv-google-tv-android-tv-y-fire-tv-primera-versión-en-prueba) y [sin app de TV](#sin-app-de-tv-solo-la-web)
 - [Parte 4. Tus videos](#parte-4-tus-películas-y-series)
 - [Parte 5. Opcional](#parte-5-opcional): [fuera de casa](#opcional-fuera-de-casa-con-tailscale), [subtítulos](#opcional-subtítulos-de-opensubtitles), [YouTube](#opcional-youtube-y-el-takeout-de-google), [música](#opcional-tu-música), [doblaje latino](#opcional-doblaje-latino-automático), [ícono en la barra de menú (macOS)](#opcional-macos-el-ícono-en-la-barra-de-menú)
 - [Si algo falla](#si-algo-falla)
@@ -237,11 +237,12 @@ la app está instalada, el servidor la mantiene al día solo (sin sacarte de Net
 Si dice `✗ No encontré el Roku en la red`: revisa que la TV esté encendida y en el mismo Wi-Fi; pon su IP en
 `config.json` → `"roku_ip"` y repite. Si dice que la contraseña es incorrecta, corrige `"roku_password"`.
 
-### TV: Google TV, Android TV y Fire TV (pronto)
+### TV: Google TV, Android TV y Fire TV (primera versión, en prueba)
 
-La app para Google TV y Android TV (Chromecast con Google TV, Nvidia Shield y TV con Google TV integrado) es lo
-segundo en la [hoja de ruta](HOJA_DE_RUTA.md); la misma servirá para Fire TV. Cuando exista, esta sección tendrá sus
-pasos y nada de lo demás cambia.
+Para Chromecast con Google TV, las TV con Google TV o Android TV, Nvidia Shield y Fire TV. Se instala desde la propia
+TV con la app **Downloader**, escribiendo la dirección que muestra la página de One TV en **Fila de reproducción ›
+Ajustes generales** (algo como `http://192.0.2.5:8765/tv`). Los pasos, con los menús de cada TV:
+**[INSTALAR-GOOGLE-TV.md](INSTALAR-GOOGLE-TV.md)**. Lo demás de esta guía no cambia.
 
 ### Sin app de TV: solo la web
 

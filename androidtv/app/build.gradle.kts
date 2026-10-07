@@ -1,9 +1,25 @@
+import java.util.Base64
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
 
 // La app de One TV para la TV: Google TV, Android TV y Fire TV (Kotlin + Jetpack Compose + Media3).
+
+// La firma de la versión que se publica en GitHub (.github/workflows/app-tv.yml): la llave llega en variables de entorno
+// que salen de los secretos del repositorio (ver LEEME.md). ANDROID_KEYSTORE_BASE64 (la llave en base64) o
+// ANDROID_KEYSTORE_FILE (la ruta del archivo), más ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS y ANDROID_KEY_PASSWORD.
+// Sin ellas se firma con la llave de pruebas de Android, como siempre (sirve para instalarla a mano).
+fun entorno(nombre: String): String? = System.getenv(nombre)?.trim()?.takeIf { it.isNotEmpty() }
+val llavePublicada: File? = entorno("ANDROID_KEYSTORE_FILE")?.let { file(it) }
+    ?: entorno("ANDROID_KEYSTORE_BASE64")?.let { b64 ->
+        layout.buildDirectory.file("firma/one-tv.jks").get().asFile.apply {
+            parentFile.mkdirs()
+            writeBytes(Base64.getMimeDecoder().decode(b64))
+        }
+    }
+
 android {
     namespace = "app.onetv.tv"
     // Compose (BOM 2026.09) y core-ktx 1.19 piden compilar contra la API 37; la app se comporta como API 36.
@@ -17,15 +33,25 @@ android {
         // en adelante, Fire TV Stick de 3.ª generación, Lite, Cube y las TV con Fire TV de esos años).
         minSdk = 23
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        // La versión publicada la pone GitHub (cada publicación, un número más); la compilada a mano es la 1.
+        versionCode = entorno("ONETV_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = entorno("ONETV_VERSION_NAME") ?: "0.1"
+    }
+
+    signingConfigs {
+        if (llavePublicada != null) create("publicada") {
+            storeFile = llavePublicada
+            storePassword = entorno("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias = entorno("ANDROID_KEY_ALIAS")
+            keyPassword = entorno("ANDROID_KEY_PASSWORD") ?: entorno("ANDROID_KEYSTORE_PASSWORD")
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Firmada con la llave de depuración para poder instalarla en una TV sin pasos extra (fase 1).
-            signingConfig = signingConfigs.getByName("debug")
+            // Con la llave de One TV si llegó (GitHub); si no, con la de pruebas de Android para instalarla a mano.
+            signingConfig = signingConfigs.findByName("publicada") ?: signingConfigs.getByName("debug")
         }
     }
 

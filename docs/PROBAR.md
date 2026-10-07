@@ -10,7 +10,7 @@ contarnos qué pasó, sobre todo si algo no salió como dice la guía.
 |---|---|---|
 | Una computadora con **Windows 10 u 11** | [INSTALAR-WINDOWS.md](INSTALAR-WINDOWS.md) | Nunca ha corrido en un Windows de verdad |
 | Una computadora con **Ubuntu 24.04** (u otro Linux) | [INSTALAR-UBUNTU.md](INSTALAR-UBUNTU.md) | Solo se probó en un Ubuntu simulado, sin TV |
-| Una TV con **Google TV**, **Android TV** o un **Fire TV** | Guía en preparación | Solo se probó en una TV simulada |
+| Una TV con **Google TV**, **Android TV** o un **Fire TV** | [INSTALAR-GOOGLE-TV.md](INSTALAR-GOOGLE-TV.md) | Solo se probó en una TV simulada |
 
 Para la app de Google TV, Android TV o Fire TV hace falta además una computadora de la casa con One TV (Mac, Ubuntu o
 Windows).

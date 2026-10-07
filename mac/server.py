@@ -15,8 +15,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import hostos
+from apptv import TIPO as TV_APP_TYPE, pagina_sin_app
 from live import LiveError, decode_url, rewrite_playlist, unwrap_segment
 from mosaic import MOSAIC_ID
+from teles import ROKU
 from youtube import VIDEO_ID, YouTubeError
 from transcode import playlist_text
 
@@ -201,7 +203,7 @@ def make_handler(app):
                 data = without_emoji(data)
             self._send(code, json.dumps(data, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
-        def _file(self, path, ctype=None, cache=False):
+        def _file(self, path, ctype=None, cache=False, headers=None):
             """Entrega un archivo respetando 'Range' (el Roku pide la película a trozos)."""
             try:
                 f = hostos.open_shared(path)   # en Windows, sin impedir que ffmpeg lo reemplace o se borre
@@ -228,6 +230,8 @@ def make_handler(app):
                 if m and rng:
                     self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
                 self.send_header("Cache-Control", "max-age=86400" if cache else "no-cache")
+                for k, v in (headers or {}).items():
+                    self.send_header(k, v)
                 self.end_headers()
                 if self.command == "HEAD":
                     return
@@ -276,6 +280,12 @@ def make_handler(app):
                 return self._json(data)
             if path == "/api/status":
                 return self._json(app.status())
+            if path == "/api/tv/ordenes":   # la app de la TV con Android espera aquí las órdenes (mac/teles.py)
+                return self._tv_orders()
+            if path == "/api/tv/app":   # la app para Google TV / Android TV / Fire TV: versión y dirección para instalarla
+                return self._json(app.tv_app())
+            if path.lower().rstrip("/") in ("/tv", "/tv.apk", "/tv/one-tv.apk"):   # instalarla con «Downloader»
+                return self._tv_apk()
             if path == "/api/intros":   # dónde empieza y termina la entrada de las series (mac/intro.py)
                 return self._json(app.intros.summary())
             if path == "/api/yt/next":   # la web, al terminar un video de YouTube en el propio aparato
@@ -392,6 +402,24 @@ def make_handler(app):
             if parts[0] == "mosaic" and len(parts) in (3, 4):
                 return self._mosaic(parts[1], "/".join(parts[2:]))
             self._send(404, b"no encontrado")
+
+        def _tv_orders(self):
+            """Espera (hasta ~25 s) las órdenes para esa TV: ver algo, pausa, avanzar, pistas, salir, actualiza…"""
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            device_id = q.get("device_id", [""])[0]
+            orders = app.teles.esperar(device_id, q.get("nombre", [""])[0])
+            try:
+                self._json({"ok": True, "ordenes": orders})
+            except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                app.teles.devolver(device_id, orders)   # se cortó: las recoge en la próxima consulta
+
+        def _tv_apk(self):
+            """El archivo de la app (o, si esta computadora todavía no lo tiene, una página que lo dice en llano)."""
+            got = app.app_tv.actual()
+            if not got:
+                return self._send(200, pagina_sin_app().encode(), "text/html; charset=utf-8")
+            return self._file(got["path"], TV_APP_TYPE,
+                              headers={"Content-Disposition": 'attachment; filename="one-tv.apk"'})
 
         def _mosaic(self, mid, rel):
             """Varios a la vez (mac/mosaic.py): la lista maestra, las listas y los trozos. Sin caché: es en vivo."""
@@ -567,10 +595,15 @@ def make_handler(app):
                 if path == "/api/progress":  # reportes del Roku
                     item = str(body.get("id", ""))
                     live = item.startswith("yt:") and bool((app.youtube.cached_info(item[3:]) or {}).get("live"))
+                    device_id = str(body.get("device_id") or "")[:80] or None
                     app.store.report(item, float(body.get("p") or 0), float(body.get("d") or 0),
                                      body.get("ev", "tick"), _int(body.get("audio")), _int(body.get("sub")),
                                      body.get("state", "play"), body.get("device", "tv"), live=live,
-                                     song=_song(body))
+                                     song=_song(body), device_id=device_id)
+                    teles = getattr(app, "teles", None)
+                    if teles and body.get("device", "tv") == "tv" and body.get("ev") == "start":
+                        # La TV que empieza a reproducir pasa a ser la que se usó por última vez (mac/teles.py).
+                        teles.usar(device_id if teles.es_android(device_id) else ROKU)
                     return self._json({"ok": True})
                 if path == "/api/import":  # lo que el Roku tenía guardado antes de esta versión
                     app.store.import_from_roku(body.get("progress"), body.get("prefs"))
@@ -690,6 +723,11 @@ def make_handler(app):
                     return self._json({"ok": True})
                 if path == "/api/key":
                     return self._json(app.remote_key(body.get("key", "")))
+                if path == "/api/tv/elegir":   # {id}: la web elige a qué TV mandar «Ver en la TV» (con más de una)
+                    return self._json(app.tv_choose(body.get("id", "")))
+                if path == "/api/tv/adios":   # {device_id}: la app de la TV con Android se cerró o se fue al fondo
+                    app.teles.adios(str(body.get("device_id", "")))
+                    return self._json({"ok": True})
                 if path == "/api/rescan":
                     app.library.scan(force=True)
                     return self._json({"ok": True, "items": len(app.library.items)})

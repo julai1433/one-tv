@@ -1,0 +1,100 @@
+# Al subir a main: compila la app de la TV para Google TV, Android TV y Fire TV, firmada, y la publica como versión de
+# GitHub «tv-0.1.N» con el archivo de nombre fijo one-tv-tv.apk (y one-tv-tv.json con su número). Así el enlace a la más
+# nueva no cambia (…/releases/latest/download/one-tv-tv.apk) y las computadoras con One TV la bajan solas una vez al día
+# (mac/apptv.py) para ofrecerla en http://<computadora>:8765/tv, donde se instala con «Downloader».
+# La llave de firma sale de los secretos del repositorio (ver androidtv/LEEME.md). Sin ellos no se publica nada (un aviso
+# en el resumen), para que una copia del repositorio sin la llave no falle.
+name: App de la TV
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "androidtv/**"
+      - "roku/fonts/**"
+      - "roku/images/icons/**"
+      - ".github/workflows/app-tv.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # crear la versión y subir el archivo
+
+concurrency:
+  group: app-tv
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: ¿Están los secretos de la llave?
+        id: llave
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ]; then
+            echo "hay=si" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Faltan los secretos de la llave de firma (ver androidtv/LEEME.md): no se publica la app."
+            echo "hay=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.llave.outputs.hay == 'si'
+
+      - uses: actions/setup-java@v4
+        if: steps.llave.outputs.hay == 'si'
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Plataforma de Android que pide la app (API 37.2)
+        if: steps.llave.outputs.hay == 'si'
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" > /dev/null
+
+      - name: Número de versión
+        if: steps.llave.outputs.hay == 'si'
+        # Cada publicación, un número más (la compilada a mano es la 1): así la TV sabe que hay una más nueva.
+        run: |
+          echo "ONETV_VERSION_CODE=$((GITHUB_RUN_NUMBER + 1))" >> "$GITHUB_ENV"
+          echo "ONETV_VERSION_NAME=0.1.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Pruebas y app firmada
+        if: steps.llave.outputs.hay == 'si'
+        working-directory: androidtv
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
+
+      - name: Revisar que salió firmada con la llave de One TV (no con la de pruebas)
+        if: steps.llave.outputs.hay == 'si'
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          firma="$("$apksigner" verify --print-certs androidtv/app/build/outputs/apk/release/app-release.apk)"
+          echo "$firma" | head -2
+          if echo "$firma" | grep -q "CN=Android Debug"; then
+            echo "::error::La app salió firmada con la llave de pruebas: revisa los secretos de la llave."
+            exit 1
+          fi
+
+      - name: Publicar la versión «tv-…»
+        if: steps.llave.outputs.hay == 'si'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p publicar
+          cp androidtv/app/build/outputs/apk/release/app-release.apk publicar/one-tv-tv.apk
+          printf '{"version": "%s", "version_code": %s}\n' "$ONETV_VERSION_NAME" "$ONETV_VERSION_CODE" > publicar/one-tv-tv.json
+          notas="App de One TV para Google TV, Android TV y Fire TV, versión $ONETV_VERSION_NAME (primera versión, en prueba).
+
+          Para instalarla o actualizarla en la TV: abre «Downloader» y escribe la dirección que muestra la web de One TV en
+          Fila de reproducción › Ajustes generales (por ejemplo http://192.0.2.5:8765/tv). Guía: docs/INSTALAR-GOOGLE-TV.md"
+          gh release create "tv-$ONETV_VERSION_NAME" publicar/one-tv-tv.apk publicar/one-tv-tv.json \
+            --target "$GITHUB_SHA" --latest \
+            --title "One TV para Google TV, Android TV y Fire TV $ONETV_VERSION_NAME" --notes "$notas"

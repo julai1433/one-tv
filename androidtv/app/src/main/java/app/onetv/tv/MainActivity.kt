@@ -21,6 +21,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import app.onetv.tv.control.Control
+import app.onetv.tv.control.nombreDeLaTv
+import app.onetv.tv.control.versionPropia
 import app.onetv.tv.ui.AppUI
 import app.onetv.tv.ui.Fonts
 import app.onetv.tv.ui.LocalFonts
@@ -43,6 +46,7 @@ import java.util.UUID
 class MainActivity : ComponentActivity() {
     private lateinit var estado: Estado
     private lateinit var player: ExoPlayer
+    private lateinit var control: Control   // la computadora maneja esta TV como al Roku (control/Ordenes.kt)
     private var red: ConnectivityManager.NetworkCallback? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,6 +59,7 @@ class MainActivity : ComponentActivity() {
         intent?.getStringExtra("servidor")?.takeIf { it.isNotBlank() }?.let { estado.fijada = it.trimEnd('/') }
         intent?.getIntExtra("puerto", 0)?.takeIf { it > 0 }?.let { estado.puertoBusqueda = it }
         intent?.getStringExtra("contentId")?.takeIf { it.isNotBlank() }?.let { estado.pendiente = it }
+        control = Control(estado, nombreDeLaTv(this), versionPropia(this))
         player = ExoPlayer.Builder(this).build()
         estado.reproductor.player = player
         val fonts = Fonts(assets)
@@ -134,8 +139,14 @@ class MainActivity : ComponentActivity() {
         emptyList()
     }
 
+    override fun onStart() {
+        super.onStart()
+        control.empezar()   // mientras se ve la app, la computadora le puede mandar órdenes
+    }
+
     override fun onStop() {
         super.onStop()
+        control.parar()
         // Se salió de la app (botón de inicio): se guarda dónde quedó y se detiene, como al salir con Atrás.
         if (estado.reproductor.visible) estado.reproductor.detener(conReporte = true)
     }

@@ -120,6 +120,12 @@ tailnet (no es pública). Tailscale recuerda la configuración aunque reinicies.
   - `transcode.py`: arma al vuelo, en trozos, lo que el Roku no puede reproducir tal cual (ver abajo).
   - `server.py`: sirve el catálogo, los videos, portadas y subtítulos. Evita que la computadora se duerma mientras se ve algo.
   - `roku.py`: encuentra el Roku en la red, instala la app y le manda órdenes (control remoto por red, ECP).
+  - `teles.py`: las TV con Android (Google TV, Android TV, Fire TV). Mientras One TV está abierta, la app deja una
+    consulta esperando en `/api/tv/ordenes` (hasta 25 s) y el servidor le contesta en cuanto hay una orden: las mismas
+    que al Roku. «Ver en la TV» va a la que se usó por última vez (o la elegida en la web); pausa, avance y pistas, a
+    la TV donde se está viendo.
+  - `apptv.py`: ofrece la app de Android TV en `/tv` para instalarla con Downloader: la compilada en esta computadora
+    (`androidtv/app/build/…`) o la más nueva publicada en GitHub (versiones `tv-…`, se revisa una vez al día).
   - `cine.py`: comandos, arranque automático, Tailscale e ícono de la barra.
   - `store.py`: progreso y preferencias de idioma.
   - `web/`: la página para elegir desde la computadora o el teléfono (cualquier navegador).
@@ -273,9 +279,10 @@ vivo» (en Windows también Edge).
   eso Windows pide guardar la contraseña de la cuenta), el chip de video se elige igual que en Linux (NVENC, Quick
   Sync, AMF; sin probar con hardware real), sin ícono en la barra de menú. Datos, caché y registro en
   `%LOCALAPPDATA%\cine-roku`; lo propio de Windows está en `mac/winapi.py` y `mac/windowsservice.py`.
-- **Solo Roku** como app de TV (y la web en cualquier navegador); Google TV, Android TV y Fire TV vienen después. El
-  modo desarrollador del Roku admite una sola app instalada a mano a la vez: One TV reemplaza a cualquier otra que hayas
-  instalado así.
+- **App de TV para Roku** y, en prueba, para **Google TV, Android TV y Fire TV** ([guía](INSTALAR-GOOGLE-TV.md)); la
+  web en cualquier navegador. El modo desarrollador del Roku admite una sola app instalada a mano a la vez: One TV
+  reemplaza a cualquier otra que hayas instalado así. A una TV con Android la computadora solo le manda órdenes mientras
+  One TV está abierta en ella (no puede abrirla sola, como al Roku); «Varios a la vez» todavía es solo del Roku.
 - **Un Roku por servidor**: si hay varios en la red, usa el primero que encuentra (o el de `roku_ip`).
 - **El español latino** es el idioma que se prefiere al elegir audio y sinopsis cuando hay varios (`mac/library.py`,
   `mac/metadata.py`).
@@ -288,6 +295,7 @@ vivo» (en Windows también Edge).
   internet. Para verlo fuera de casa, usa Tailscale (`./cine tailscale`). Para que solo lo vea esta computadora:
   `"escuchar": "127.0.0.1"` en `config.json`.
 - Solo acepta órdenes en JSON y no da permiso a otros sitios web: una página cualquiera abierta en un navegador de la
-  casa no puede usar su API.
+  casa no puede usar su API. La consulta de las TV con Android (`/api/tv/ordenes`) es la única que espera: solo entrega
+  las órdenes de esa TV, se olvidan a los 30 s y guarda a lo más 12 TV.
 - Las direcciones que reescribe en las listas para la TV van firmadas con una clave de esta computadora
   (`datos/clave_enlaces`): solo abre lo que él mismo puso en una lista, y solo de internet.

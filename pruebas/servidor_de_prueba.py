@@ -21,6 +21,7 @@ cine.App.watch_downloads = lambda self: None   # tampoco mira las Descargas real
 cine.App.keep_account_fresh = lambda self: None
 cine.App.keep_avatars = lambda self: None
 cine.App.keep_ytdlp_fresh = lambda self: None
+cine.App.keep_tv_app_fresh = lambda self: None   # ni la app de Android TV de GitHub (la compilada aquí sí se ofrece)
 cine.App.warm_up = lambda self: None
 import intro; intro.IntroDetector.watch = lambda self, library: None   # la detección de entradas
 import subsync; subsync.SubtitleAligner.watch = lambda self, library: None   # ni la de subtítulos

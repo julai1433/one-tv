@@ -839,7 +839,8 @@ class Estado(
         escucharEn(tracks, i, 0.0)
     }
 
-    private fun escucharEn(tracks: List<app.onetv.tv.data.Song>, i: Int, startAt: Double) {
+    /** Escuchar esas canciones desde la `i` (también la música que manda la computadora, control/Ordenes.kt). */
+    fun escucharEn(tracks: List<app.onetv.tv.data.Song>, i: Int, startAt: Double) {
         musicCtx = tracks to i
         val t = tracks[i]
         cur = Actual("track:" + t.id, music = true)
