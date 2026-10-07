@@ -7,15 +7,17 @@ on:
 jobs:
   computadora:
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: ffmpeg
         run: brew install ffmpeg
       - name: Pruebas
-        run: python3 -m unittest discover -s pruebas -p 'test_*.py'
+        run: python3 -m unittest discover -v -s pruebas -p 'test_*.py'
 
   roku:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
