@@ -12,6 +12,7 @@ que se acaba de abrir o la que se eligió en la web. Si solo hay una, a esa. Con
 """
 
 import collections
+import itertools
 import re
 import threading
 import time
@@ -73,7 +74,10 @@ class Teles:
         self._reloj = reloj
         # device_id -> {"nombre", "visto", "esperando", "turno", "ordenes": deque[(cuándo, orden)]}
         self._tv = collections.OrderedDict()
-        self._usada = {}   # id (ROKU o el de una TV con Android) -> cuándo se usó, se abrió o se eligió por última vez
+        self._usada = {}   # id (ROKU o el de una TV con Android) -> turno en que se usó, se abrió o se eligió por última vez
+        # Un contador y no la hora: en Windows el reloj avanza a saltos de ~15 ms y dos elecciones seguidas empataban
+        # (y ganaba el Roku).
+        self._turno = itertools.count(1)
         self.vistas = False   # alguna vez se conectó una TV con Android (cambia el mensaje «No encontré el Roku»)
 
     # ---------- la TV con Android pregunta ----------
@@ -133,10 +137,10 @@ class Teles:
             t = {"nombre": NOMBRE_ANDROID, "visto": self._reloj(), "esperando": 0, "turno": 0,
                  "ordenes": collections.deque(maxlen=MAX_ORDENES)}
             self._tv[device_id] = t
-            self._usada[device_id] = self._reloj()   # recién abierta: es la que se está usando
+            self._usada[device_id] = next(self._turno)   # recién abierta: es la que se está usando
             self._olvidar_viejas()
         elif t.pop("adios", False) or not self._conectada(t):
-            self._usada[device_id] = self._reloj()   # se volvió a abrir
+            self._usada[device_id] = next(self._turno)   # se volvió a abrir
             t["ordenes"].clear()
         if nombre:
             t["nombre"] = limpiar_nombre(nombre)
@@ -204,7 +208,7 @@ class Teles:
     def usar(self, ident):
         """Esa TV empezó a reproducir algo: pasa a ser «la que se usó por última vez»."""
         with self._cond:
-            self._usada[ident] = self._reloj()
+            self._usada[ident] = next(self._turno)
 
     def elegir(self, ident, roku):
         """La web eligió a qué TV mandar. -> False si esa TV ya no está."""
