@@ -13,7 +13,10 @@ jobs:
       - name: ffmpeg
         run: brew install ffmpeg
       - name: Pruebas
-        run: python3 -m unittest discover -v -s pruebas -p 'test_*.py'
+        # Si algo se traba más de 3 minutos, se imprime dónde está cada hilo y se termina (para saber qué fue).
+        run: >
+          python3 -X faulthandler -c "import faulthandler, unittest; faulthandler.dump_traceback_later(180, exit=True);
+          unittest.main(module=None, argv=['pruebas', 'discover', '-v', '-s', 'pruebas', '-p', 'test_*.py'])"
 
   roku:
     runs-on: ubuntu-latest
