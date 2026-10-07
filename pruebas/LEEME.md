@@ -78,6 +78,13 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
 - `test_mosaico.py` — varios a la vez en la TV (`mac/mosaic.py`, sin red): el comando de ffmpeg (2–4 fuentes, audio
   «alt» y «ts», respaldo sin el chip), lo que llega por la API, las listas HLS, la sesión con reloj falso (inactividad,
   trabada, fuente caída) y las rutas. Incluye una prueba corta con ffmpeg de verdad que se salta sola sin VideoToolbox.
+- `test_bibliotecas_ajenas.py` — una biblioteca falsa acomodada para Plex (en un «NAS»): el organizador no mueve nada
+  ahí, lo bajado va a la carpeta de One TV (o no se agrega, con un aviso), se leen bien películas, ediciones, partes,
+  series con «Season 01» y «Specials», los códigos de Plex y Jellyfin, los pósters de la carpeta (y el fondo después
+  de internet), la identificación por nombre (con internet simulado), los subtítulos bajados van a la carpeta de One
+  TV y la biblioteca los encuentra, el doblaje no se agrega ahí, carpetas de solo lectura, «solo_leer» en config.json,
+  la pregunta de `./cine configurar`, y que la carpeta de One TV se sigue ordenando como siempre. Una parte lee la
+  biblioteca de verdad con ffprobe (un video de 2,5 min hecho con ffmpeg y enlazado con cada nombre).
 - `test_linea_de_tiempo.py` — la conversión completa (`mac/transcode.py`) con un video sintético que trae 2 s dañados
   (bytes ilegibles o pedazos faltantes): la salida dura lo mismo, cada trozo empieza en su segundo, la imagen se
   congela en vez de saltar y el sonido que falta se vuelve silencio (así los subtítulos no se corren). También que al

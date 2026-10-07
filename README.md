@@ -66,9 +66,10 @@ paso, sin suponer nada: **[docs/INSTALAR.md](docs/INSTALAR.md)** (Mac), **[docs/
 (Ubuntu), **[docs/INSTALAR-WINDOWS.md](docs/INSTALAR-WINDOWS.md)** (Windows, con un solo comando o doble clic) y
 **[docs/INSTALAR-DOCKER.md](docs/INSTALAR-DOCKER.md)** (un NAS o cualquier Linux con Docker, en prueba).
 
-> **¿Tu biblioteca ya la usa Plex, Jellyfin u otro programa (por ejemplo en un NAS)?** Por ahora no le des esa carpeta
-> a One TV: One TV acomoda (mueve y renombra) los videos que encuentra sueltos en su carpeta, y eso puede desordenar la
-> de otro programa. Ya viene una versión que la usa solo para leer, sin tocar nada.
+**¿Ya tienes tu biblioteca, por ejemplo en un NAS y con Plex o Jellyfin?** Prueba One TV junto a ese programa sin
+romper nada: One TV usa esas carpetas **solo para leer** (no mueve, no renombra ni escribe nada ahí) y aun así muestra
+pósters, sinopsis y series bien agrupadas. Eso y los demás casos (disco externo, el NAS como servidor, descargas en
+otra carpeta, música en el NAS, verlo fuera de casa), en pocos pasos: **[docs/GUIA-RAPIDA.md](docs/GUIA-RAPIDA.md)**.
 
 Para quien ya sabe (macOS):
 
@@ -158,6 +159,8 @@ con la misma meta: lo más sencillo posible, que se instale y se use sin termina
 ## Más
 
 - [docs/INSTALAR.md](docs/INSTALAR.md): instalar, paso a paso.
+- [docs/GUIA-RAPIDA.md](docs/GUIA-RAPIDA.md): tu caso en pocos pasos (biblioteca de Plex en un NAS, disco externo,
+  descargas en otra carpeta, música en el NAS, fuera de casa).
 - [docs/DETALLES.md](docs/DETALLES.md): comandos, cómo funciona por dentro, configuración y qué hacer si algo falla.
 - [docs/HOJA_DE_RUTA.md](docs/HOJA_DE_RUTA.md): lo que viene.
 - [DESIGN.md](DESIGN.md): colores, letras y piezas de la interfaz.

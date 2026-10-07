@@ -37,6 +37,27 @@ Cada minuto el servicio revisa, sin que haga falta nada más:
 - Lo que ya está en la biblioteca no se duplica. A lo nuevo se le bajan póster y sinopsis, y la TV se
   actualiza sola. Registro de lo hecho: `datos/organizador.json`.
 
+**Solo en las carpetas de One TV** (`mac/folders.py`). Una carpeta de `carpetas` es de One TV si `config.json` →
+`"solo_leer"` lo dice (`false`), si One TV la vio vacía la primera vez, o si tiene `Películas/` o `Series/` con sus
+códigos en al menos la mitad de lo que hay adentro. Es de otro programa (Plex, Jellyfin, Emby…) y **solo se lee** si
+`"solo_leer"` lo dice (`true`), si One TV no puede escribir en ella (un disco de solo lectura, el `:ro` de Docker) o si
+ya trae videos acomodados de otra forma. Lo decidido se recuerda en `datos/carpetas.json` junto con el disco en que
+está, así una carpeta no cambia de dueño sola (si en esa ruta aparece otro disco, como un NAS que se monta encima de la
+carpeta vacía, se vuelve a mirar). En una carpeta de otro programa: el organizador no mueve ni renombra nada, lo que
+termina de bajarse va a la primera carpeta de One TV (si no hay ninguna, no se agrega y el registro lo avisa), los
+subtítulos bajados van a `datos/subtitulos/<video>/` y no se agrega el doblaje latino automático. Una carpeta que no
+está conectada no se toca.
+
+**Bibliotecas acomodadas para Plex o Jellyfin** (`mac/library.py`, `mac/identify.py`, `mac/artwork.py`): se leen
+películas en su carpeta o sueltas (`Movies/Avatar (2009).mkv`), ediciones (`{edition-…}`), partes (`- pt1`, `- cd2`),
+series en `Season 01` y `Specials` (la serie es la de la carpeta; los especiales, «Especiales», van al final) y los
+códigos `{imdb-tt…}`, `{tmdb-…}`, `{tvdb-…}`, `[imdbid-…]`, `[tvdbid-…]`. Se saltan los extras con sufijo
+(`-trailer`, `-behindthescenes`…). Lo que no trae el código de IMDb o de TheTVDB se identifica por su `{tmdb-…}`
+(Wikidata) o por su nombre y año (IMDb, TVmaze) y se guarda en la caché (`codigos.json`), sin tocar los archivos.
+Pósters: primero el que está junto a la película o la serie (`poster.jpg`, `folder.jpg`, `cover.jpg`, `show.jpg`,
+`Película.jpg`, `Película-poster.jpg`), luego el de internet, luego el fondo (`fanart.jpg`, `background.jpg`), luego el
+fotograma. No se importa nada de la base de datos de Plex (lo visto, el minuto, colecciones, pósters elegidos ahí).
+
 ### Doblaje latino para lo que no lo tiene
 
 Si llega **otra versión** de una película o episodio que ya está en la biblioteca (por ejemplo, una
@@ -191,7 +212,8 @@ Los que son imagen (PGS, DVD) no se pueden mostrar.
   el *moviehash*), luego el latino, los hechos por personas y los más descargados.
 - En la TV: menú de la película → **Buscar subtítulos en español / en inglés**: baja el mejor y lo deja elegido.
 - Se guardan junto al video como `Película.es.opensubtitles-latino.srt` (sirven para cualquier reproductor) y
-  aparecen como «Español (Latino) · internet».
+  aparecen como «Español (Latino) · internet». Si el video está en una carpeta de otro programa (Plex…) o de solo
+  lectura, van a `datos/subtitulos/<video>/` y aparecen igual (ver [Biblioteca automática](#biblioteca-automática)).
 - Cupo: 5 descargas al día solo con la clave; 20 si pones usuario y contraseña de tu cuenta gratis en `config.json`.
 
 **Solos, para toda la biblioteca** (`mac/subs_auto.py`): con la clave de OpenSubtitles puesta, la computadora baja

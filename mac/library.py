@@ -53,6 +53,18 @@ CASTILIAN_WORDS = re.compile(r"(?i)castellano|castilian|espa[ñn]a|spain|europe|
 
 EPISODE_RE = re.compile(r"(?i)(?:^|[\s._\-\[(])s(\d{1,2})[\s._-]?e(\d{1,3})")
 YEAR_RE = re.compile(r"(?<!\d)(19[2-9]\d|20[0-4]\d)(?!\d)")
+PAREN_YEAR_RE = re.compile(r"\((19[2-9]\d|20[0-4]\d)\)")
+# Bibliotecas acomodadas para Plex (o Jellyfin, Emby, Kodi):
+# - extras junto a la película con un sufijo: «Película (2009)-trailer.mkv», «…-behindthescenes.mkv»;
+# - una película en varios archivos: «Película (2009) - pt1.mkv», «… - cd2.avi», «… part3»;
+# - ediciones: «Película (1982) {edition-Director's Cut}»;
+# - carpetas de temporada («Season 01», «Temporada 2», «Specials») dentro de la carpeta de la serie;
+# - carpetas con películas sueltas («Movies/Avatar (2009).mkv»): son películas, no una colección.
+EXTRA_SUFFIX_RE = re.compile(r"(?i)-(trailer|behindthescenes|deleted|featurette|interview|scene|short|other)$")
+PART_RE = re.compile(r"(?i)[\s._-]+(?:cd|dvd|disc|disk|part|pt)[\s._-]?(\d{1,2})$")
+EDITION_RE = re.compile(r"\{edition-([^}]+)\}")
+SEASON_DIR_RE = re.compile(r"(?i)^(?:(?:season|temporada|staffel|saison|series)\s*\d{1,3}|s\d{1,3}|specials|especiales)$")
+MOVIE_DIR_RE = re.compile(r"(?i)^(movies?|pel[ií]culas?|pelis|films?|filmes|cine)\b")
 JUNK_RE = re.compile(
     r"(?i)(?<![a-z0-9])(2160p|1080p|720p|576p|480p|4k|uhd|blu-?ray|brrip|bdrip|bd-?rip|"
     r"web-?rip|web-?dl|hdtv|dvd-?rip|dvdscr|hdrip|x26[45]|h\.?26[45]|hevc|avc|xvid|divx|"
@@ -67,6 +79,17 @@ def _nfc(s):
 
 IMDB_RE = re.compile(r"\{imdb-(tt\d+)\}")
 GROUP_CHUNK = 14  # filas largas de películas se parten alfabéticamente
+
+
+def video_id(path):
+    """El identificador de un video de la biblioteca (el mismo para la TV, la web y lo guardado de él)."""
+    return hashlib.sha1(str(path).encode()).hexdigest()[:12]
+
+
+def _year_of(name):
+    """El año entre paréntesis de un nombre ya limpio («Serie (2020)» -> 2020), o 0."""
+    m = PAREN_YEAR_RE.search(clean_title(name))
+    return int(m.group(1)) if m else 0
 
 
 def clean_title(name, fallback=None):
@@ -436,6 +459,26 @@ def _audio_problem(info):
     return None
 
 
+def _show_dir(root, episode):
+    """(carpeta de la serie, ¿el episodio está en una carpeta de temporada?). La carpeta de la serie es la que contiene
+    «Season 01», «Temporada 2» o «Specials»; o, si no hay, la del propio episodio. None si sería la raíz."""
+    parent = episode.parent
+    in_season = parent != root and bool(SEASON_DIR_RE.match(_nfc(parent.name)))
+    folder = parent.parent if in_season else parent
+    return (folder if folder != root and root in folder.parents else None), in_season
+
+
+def _movies_folder(folder, videos):
+    """¿Una carpeta con varios videos sueltos es de películas y no una colección o temporada? Sí si se llama como
+    una («Movies», «Películas», «Films»…), si son las partes de una sola película o si la mayoría trae el año entre
+    paréntesis, como pide Plex («Avatar (2009).mkv»)."""
+    if MOVIE_DIR_RE.match(_nfc(folder.name)):
+        return True
+    if all(PART_RE.search(v.stem) for v in videos):
+        return True
+    return sum(bool(PAREN_YEAR_RE.search(v.stem)) for v in videos) * 2 > len(videos)
+
+
 class Library:
     def __init__(self, roots, cache_dir, title_overrides=None):
         self.roots = [Path(os.path.expanduser(r)).resolve() for r in roots]
@@ -451,6 +494,9 @@ class Library:
         self.warnings = []
         self.ext_probe = {}    # (ruta, mtime, tamaño) de pistas aparte -> ffprobe
         self.original_lookup = None   # función(video) -> código de idioma original; la pone la app (metadata.py)
+        # Subtítulos que One TV guardó en su propia carpeta (los de videos en carpetas de otro programa, como Plex):
+        # <carpeta>/<id del video>/… La pone la app (mac/folders.py); sin ella, solo se buscan junto al video.
+        self.own_subs = None
         try:
             self.probe_cache = json.loads(self.cache_file.read_text())
         except (OSError, json.JSONDecodeError):
@@ -480,6 +526,8 @@ class Library:
                     if f.startswith(".") or Path(f).suffix.lower() not in VIDEO_EXTS:
                         continue
                     if re.search(r"(?i)(?<![a-z])sample(?![a-z])", f):
+                        continue
+                    if EXTRA_SUFFIX_RE.search(Path(f).stem):   # extra de Plex: «Película (2009)-trailer.mkv»
                         continue
                     found.append((root, Path(dirpath) / f))
         return found
@@ -528,21 +576,30 @@ class Library:
     def _build(self, entries):
         # Cuántos videos hay bajo cada carpeta (para saber si una carpeta es "de una película").
         under = {}
-        direct_count = {}
+        direct = {}   # carpeta -> los videos que están directo en ella
         for root, path, _, _ in entries:
-            direct_count[path.parent] = direct_count.get(path.parent, 0) + 1
+            direct.setdefault(path.parent, []).append(path)
             for parent in path.parents:
                 under[parent] = under.get(parent, 0) + 1
                 if parent == root:
                     break
+        direct_count = {folder: len(videos) for folder, videos in direct.items()}
         items, groups = {}, {}
         for root, path, info, st in entries:
-            item_id = hashlib.sha1(str(path).encode()).hexdigest()[:12]
+            item_id = video_id(path)
             ep = EPISODE_RE.search(path.stem)
             rel_parent = path.parent.relative_to(root)
+            part = None if ep else PART_RE.search(path.stem)
             if ep:
                 raw_show = path.stem[:ep.start()]
                 show = nice_show_name(raw_show) if clean_title(raw_show).strip(" -") else ""
+                show_dir, in_season_dir = _show_dir(root, path)
+                if show_dir and in_season_dir:
+                    # Serie/Season 01/episodio (como lo acomodan One TV, Plex y Jellyfin): la serie es la de su carpeta,
+                    # aunque los archivos se llamen distinto entre sí.
+                    show = nice_show_name(show_dir.name) or show
+                elif show_dir and show_key(nice_show_name(show_dir.name)) != show_key(show):
+                    show_dir = None   # episodios sueltos en otra carpeta («Series/», «TV Shows/»): no es la de la serie
                 if not show:
                     show = nice_show_name(SEASON_WORD_RE.sub("", path.parent.name)) or "Series"
                 season, episode = int(ep.group(1)), int(ep.group(2))
@@ -558,9 +615,11 @@ class Library:
                 sort = (season, episode, path.name)
                 full = f"{show} · T{season} {ep_label}" + (f" · {rest}" if rest and len(rest) > 2 else "")
                 extra = {"kind": "episode", "show": show, "season": season, "ep": ep_label,
-                         "ep_title": rest if rest and len(rest) > 2 else ""}
+                         "ep_title": rest if rest and len(rest) > 2 else "",
+                         "show_year": _year_of(show_dir.name if show_dir else raw_show),
+                         "show_dir": str(show_dir) if show_dir else ""}
             elif direct_count[path.parent] >= 2 and path.parent != root and \
-                    under[path.parent] == direct_count[path.parent]:
+                    under[path.parent] == direct_count[path.parent] and not _movies_folder(path.parent, direct[path.parent]):
                 # Carpeta con varios videos sueltos y sin subcarpetas: una temporada/colección.
                 gtitle = clean_title(path.parent.name)
                 gkey = ("serie", show_key(gtitle))
@@ -575,8 +634,11 @@ class Library:
                 top = path.parent
                 while top != root and top.parent != root and under.get(top.parent, 0) == 1:
                     top = top.parent
-                folder_title = clean_title(top.name) if top != root and under.get(top, 0) == 1 else ""
-                file_title = clean_title(path.stem)
+                # Una película en varios archivos (pt1, pt2…) también tiene su carpeta, si en ella solo están sus partes.
+                alone = under.get(top, 0) == 1 or (part and top == path.parent and under.get(top, 0) == direct_count[top]
+                                                   and all(PART_RE.search(v.stem) for v in direct[top]))
+                folder_title = clean_title(top.name) if top != root and alone else ""
+                file_title = clean_title(path.stem[:part.start()] if part else path.stem)
                 if folder_title and (YEAR_RE.search(folder_title) or not YEAR_RE.search(file_title)):
                     title = folder_title
                 else:
@@ -584,13 +646,18 @@ class Library:
                 imdb = IMDB_RE.search(str(path))
                 if imdb and imdb.group(1) in self.overrides:
                     title = self.overrides[imdb.group(1)]
+                work = title
+                if part:
+                    title = f"{title} · Parte {int(part.group(1))}"
                 category = top.parent if folder_title else path.parent
                 rel = category.relative_to(root) if category != root else Path()
                 gtitle = " · ".join(_nfc(p) for p in rel.parts) or "Películas"
                 gkey = ("peli", gtitle.lower())
                 sort = (0, 0, title.lower())
                 full = title
-                extra = {"kind": "movie"}
+                edition = EDITION_RE.search(path.stem) or (EDITION_RE.search(top.name) if folder_title else None)
+                extra = {"kind": "movie", "work": work, "movie_dir": str(top) if folder_title else "",
+                         "edition": _nfc(edition.group(1)).strip() if edition else ""}
             mode, reason = classify(path.suffix.lower(), info, st.st_size)
             ext_audio = self._ext_audio(path)
             if ext_audio:
@@ -603,6 +670,17 @@ class Library:
                 **extra,
             }
             groups.setdefault(gkey, {"title": gtitle, "kind": gkey[0], "items": []})["items"].append((sort, item_id))
+
+        # Dos ediciones de la misma película ({edition-…} de Plex): se distinguen por la edición.
+        same_title = {}
+        for it in items.values():
+            if it["kind"] == "movie":
+                same_title.setdefault(it["title"].lower(), []).append(it)
+        for same in same_title.values():
+            if len(same) > 1:
+                for it in same:
+                    if it["edition"]:
+                        it["title"] = it["full_title"] = f"{it['title']} · {it['edition']}"
 
         self._build_sections(items, groups)
         rows = []
@@ -642,19 +720,21 @@ class Library:
 
         series, nexts = [], {}
         for key, g in sorted(((k, g) for k, g in groups.items() if k[0] == "serie"), key=lambda kg: kg[1]["title"].lower()):
-            episode_ids = [i for _, i in sorted(g["items"], key=lambda t: t[0])]
+            # Los especiales (temporada 0, «Specials» de Plex) van al final: «Empezar» es por el primer episodio.
+            episode_ids = [i for _, i in sorted(g["items"], key=lambda t: (t[0][0] == 0, t[0]))]
             seasons = {}
             for i in episode_ids:
                 seasons.setdefault(items[i]["season"], []).append(i)
             out = []
-            for number in sorted(seasons):
+            for number in sorted(seasons, key=lambda n: (n == 0, n)):
                 entries = []
                 for n, i in enumerate(seasons[number], 1):
                     it = items[i]
                     if not it["ep"]:  # colecciones sin SxxEyy: se numeran por orden
                         it["ep"] = f"E{n}"
                     entries.append({"id": i, "label": it["ep"] + (f" · {it['ep_title']}" if it["ep_title"] else "")})
-                out.append({"season": number, "title": f"Temporada {number}", "items": entries})
+                out.append({"season": number, "title": "Especiales" if number == 0 else f"Temporada {number}",
+                            "items": entries})
             ordered = [e["id"] for season in out for e in season["items"]]
             for a, b in zip(ordered, ordered[1:]):
                 if _follows(items[a], items[b]):
@@ -702,6 +782,10 @@ class Library:
         stem = _nfc(path.stem).lower()
         candidates = []
         try:
+            if self.own_subs:   # los que One TV guardó en su carpeta (videos en carpetas de otro programa)
+                kept = Path(self.own_subs) / video_id(path)
+                if kept.is_dir():
+                    candidates += [f for f in kept.iterdir() if f.suffix.lower() in SUB_EXTS]
             for f in path.parent.iterdir():
                 if f.suffix.lower() in SUB_EXTS and (_nfc(f.stem).lower().startswith(stem) or videos_in_dir == 1):
                     candidates.append(f)

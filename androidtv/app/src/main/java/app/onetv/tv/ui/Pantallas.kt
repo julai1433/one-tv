@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,6 +41,7 @@ import app.onetv.tv.Estado
 import app.onetv.tv.Fila
 import app.onetv.tv.Seccion
 import app.onetv.tv.Vacio
+import app.onetv.tv.VistaBuscar
 import app.onetv.tv.VistaCuadricula
 import app.onetv.tv.VistaFilas
 import app.onetv.tv.data.marquee
@@ -55,16 +57,19 @@ fun AppUI(e: Estado, video: @Composable () -> Unit) {
             else when (val v = e.vista) {
                 is VistaFilas -> FilasUI(e, v)
                 is VistaCuadricula -> CuadriculaUI(e, v)
+                is VistaBuscar -> BuscarUI(e, v)
                 null -> Texto(marquee(e.seccion.text), font(72, Face.BLACK), Modifier.offset(168.u, 26.u))
             }
             MenuLateral(e)
             e.ficha?.let { FichaUI(e, it) }
+            if (e.ayuda) AyudaUI()
         }
         // El reproductor siempre está (para no rearmar el video), visible solo cuando se reproduce algo.
         Box(Modifier.fillMaxSize().zIndex(if (e.reproductor.visible) 5f else -1f)) {
             if (e.reproductor.visible) PantallaReproductor(e, video)
         }
         e.lista?.let { Box(Modifier.zIndex(6f)) { ListaUI(e, it) } }
+        if (e.listaNueva != null) Box(Modifier.zIndex(6.5f)) { ListaNuevaUI(e) }
         if (e.aviso.isNotEmpty()) Box(Modifier.fillMaxSize().zIndex(7f), contentAlignment = Alignment.BottomCenter) {
             Box(Modifier.padding(bottom = 64.u).background(C.raise2).padding(horizontal = 28.u, vertical = 18.u)) {
                 Texto(e.aviso, font(32, color = if (e.avisoError) C.guindaLight else C.text), maxLines = 2)
@@ -97,7 +102,7 @@ fun MenuLateral(e: Estado) {
                 current -> C.lime
                 else -> C.text
             }
-            val y = 176 + i * 86
+            val y = 176 + i * 80   // nueve secciones: caben sobre el estado de la computadora
             if (open) {
                 Box(Modifier.offset(28.u, y.u).size(504.u, 72.u).clip(RoundedCornerShape(2.u)).background(if (focused) C.lime else Color.Transparent))
                 Icono(s.icon, color, Modifier.offset(48.u, (y + 14).u).size(44.u))
@@ -133,17 +138,21 @@ fun MenuLateral(e: Estado) {
 @Composable
 fun FilasUI(e: Estado, v: VistaFilas) {
     val (r0, c0) = e.focoFilas[v.key] ?: (0 to 0)
+    val enBoton = r0 < 0 && v.topButton.isNotEmpty()
     val r = r0.coerceIn(0, (v.filas.size - 1).coerceAtLeast(0))
     val activo = !e.menuAbierto && e.ficha == null
     Box(Modifier.fillMaxSize()) {
         Texto(marquee(v.header), font(72, Face.BLACK), Modifier.offset(168.u, 26.u).width(1600.u))
-        Column(Modifier.offset(168.u, 150.u)) {
+        if (v.topButton.isNotEmpty()) Box(Modifier.offset(168.u, 128.u)) {
+            BotonUI(app.onetv.tv.Boton("top", v.topButton, "search"), enBoton && activo)
+        }
+        Column(Modifier.offset(168.u, (if (v.topButton.isNotEmpty()) 250 else 150).u)) {
             for (ri in r until v.filas.size) {
                 val fila = v.filas[ri]
                 val focused = ri == r
                 val c = if (fila.tarjetas.isEmpty()) 0 else c0.coerceIn(0, fila.tarjetas.size - 1)
-                FilaUI(fila, if (focused) c else -1, activo)
-                if (focused) {
+                FilaUI(fila, if (focused && !enBoton) c else -1, activo && !enBoton)
+                if (focused && !enBoton) {
                     val info = fila.tarjetas.getOrNull(c)?.info.orEmpty()
                     Box(Modifier.height(96.u).padding(top = 18.u)) {
                         if (activo) Texto(info, font(32, color = C.textSoft), Modifier.width(1640.u))
@@ -167,7 +176,8 @@ fun FilaUI(fila: Fila, foco: Int, activo: Boolean) {
         val start = if (foco < 0) 0 else (foco - visibles + 1).coerceAtLeast(0)
         Row(horizontalArrangement = Arrangement.spacedBy(fila.forma.gap.u), modifier = Modifier.height(fila.forma.slotH.u)) {
             for (i in start until minOf(fila.tarjetas.size, start + visibles + 1)) {
-                TarjetaUI(fila.tarjetas[i], fila.forma, foco == i && activo, atenuar = activo)
+                // Cada tarjeta ligada a su elemento (no a su lugar en la fila): su imagen no pasa a otra al correrse.
+                key(fila.tarjetas[i].id) { TarjetaUI(fila.tarjetas[i], fila.forma, foco == i && activo, atenuar = activo) }
             }
         }
     }
@@ -188,12 +198,12 @@ fun CuadriculaUI(e: Estado, v: VistaCuadricula) {
             Texto(v.count, font(32, color = C.muted), Modifier.padding(bottom = 10.u))
         }
         if (v.chips.isNotEmpty()) {
-            val chipFoco = if (i == -1 && activo) (e.focoChip[v.key] ?: v.chips.indexOfFirst { it.id == v.chipValue }.coerceAtLeast(0)) else -1
+            val chipFoco = if (i == -1 && activo) (e.focoChip[v.key] ?: v.chips.indexOfFirst { it.id == v.chipValue }).coerceIn(0, v.chips.size - 1) else -1
             Row(Modifier.fillMaxWidth().padding(top = 40.u, end = 80.u), horizontalArrangement = Arrangement.End) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.u)) {
                     v.chips.forEachIndexed { k, b ->
                         if (v.chipsSegmentos) Segmento(b, k == chipFoco, b.id == v.chipValue)
-                        else BotonUI(b, k == chipFoco, principal = k == 0)
+                        else BotonUI(b, k == chipFoco, principal = v.chipsPrincipal && k == 0)
                     }
                 }
             }
@@ -211,7 +221,7 @@ fun CuadriculaUI(e: Estado, v: VistaCuadricula) {
             for (row in firstRow until minOf((n + cols - 1) / cols, firstRow + 4)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(24.u), modifier = Modifier.height((rowH - 20).u)) {
                     for (k in row * cols until minOf(n, row * cols + cols)) {
-                        TarjetaUI(v.tarjetas[k], v.forma, k == i && activo, atenuar = activo && i >= 0)
+                        key(v.tarjetas[k].id) { TarjetaUI(v.tarjetas[k], v.forma, k == i && activo, atenuar = activo && i >= 0) }
                     }
                 }
             }
@@ -234,7 +244,7 @@ fun FichaUI(e: Estado, f: app.onetv.tv.Ficha) {
             Texto(marquee(f.title), font(if (big) 110 else 72, Face.BLACK), maxLines = 2)
             if (f.subtitle.isNotEmpty()) Texto(f.subtitle, font(38, Face.BOLD), Modifier.padding(top = 20.u))
             Row(Modifier.padding(top = 22.u), verticalAlignment = Alignment.CenterVertically) {
-                Texto(f.meta, font(32, color = C.textSoft))
+                Texto(listOf(f.meta, e.fichaWhen).filter { it.isNotEmpty() }.joinToString("   ·   "), font(32, color = C.textSoft))
                 if (f.spanish) EtiquetaEspanol(Modifier.padding(start = 22.u), size = 27)
             }
             if (f.langs.isNotEmpty()) Row(Modifier.padding(top = 22.u), verticalAlignment = Alignment.CenterVertically) {
@@ -243,51 +253,14 @@ fun FichaUI(e: Estado, f: app.onetv.tv.Ficha) {
             }
             if (e.fichaDesc.isNotEmpty()) Texto(e.fichaDesc, font(32, color = C.textSoft), Modifier.padding(top = 22.u).width(1150.u), maxLines = 3)
         }
-        Row(Modifier.offset(110.u, 740.u), horizontalArrangement = Arrangement.spacedBy(16.u)) {
-            f.buttons.forEachIndexed { i, b -> BotonUI(b, i == e.fichaBoton && e.lista == null, principal = i == 0) }
-        }
-        if (e.fichaMensaje.isNotEmpty()) Texto(e.fichaMensaje, font(32, Face.BOLD, if (e.fichaMensajeError) C.guindaLight else C.lime),
+        val libre = e.lista == null && e.idioma == null
+        FilaBotones(f.buttons, if (libre) e.fichaBoton else -1, Modifier.offset(110.u, 740.u))
+        if (e.fichaMensaje.isNotEmpty() && e.idioma == null) Texto(e.fichaMensaje, font(32, Face.BOLD, if (e.fichaMensajeError) C.guindaLight else C.lime),
             Modifier.offset(110.u, 840.u).width(1700.u))
-        Texto("OK: elegir   ·   ▶: reproducir   ·   Atrás: volver", font(27, color = C.muted), Modifier.offset(110.u, 990.u))
-    }
-}
-
-// ---------- lista a la derecha (idioma, audio y subtítulos) ----------
-
-@Composable
-fun ListaUI(e: Estado, l: app.onetv.tv.Lista) {
-    Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(C.scrim))
-        Box(Modifier.offset(820.u, 0.u).size(1100.u, 1080.u).background(C.raise2))
-        Texto(marquee(l.title), font(72, Face.BLACK), Modifier.offset(880.u, 48.u).width(992.u))
-        Texto(l.note, font(32, color = C.textSoft), Modifier.offset(880.u, 146.u).width(992.u), maxLines = 2)
-        if (l.opciones.isEmpty()) {
-            Column(Modifier.offset(880.u, 276.u).width(960.u), verticalArrangement = Arrangement.spacedBy(12.u)) {
-                Texto(marquee(l.vacio.phrase), font(48, Face.DISPLAY))
-                Texto(l.vacio.cause, font(32, color = C.textSoft), maxLines = 3)
-            }
-        } else {
-            val first = (e.listaIndex - 5).coerceAtLeast(0)
-            Column(Modifier.offset(868.u, 252.u).width(1004.u), verticalArrangement = Arrangement.spacedBy(8.u)) {
-                for (k in first until minOf(l.opciones.size, first + 7)) {
-                    val o = l.opciones[k]
-                    val foco = k == e.listaIndex
-                    val color = if (foco) C.onLime else C.text
-                    Row(
-                        Modifier.fillMaxWidth().height(92.u).clip(RoundedCornerShape(2.u)).background(if (foco) C.lime else Color.Transparent)
-                            .padding(horizontal = 20.u),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icono(o.icon, color, Modifier.size(32.u))
-                        Column(Modifier.padding(start = 20.u)) {
-                            Texto(o.title, font(32, if (o.line.isNotEmpty()) Face.BOLD else Face.REGULAR, color))
-                            if (o.line.isNotEmpty()) Texto(o.line, font(27, color = if (foco) C.onLime else C.lime))
-                        }
-                    }
-                }
-            }
-        }
-        Texto("OK: elegir   ·   Atrás: cerrar", font(27, color = C.muted), Modifier.offset(880.u, 990.u))
+        Texto("OK: elegir   ·   mantén OK: sinopsis completa   ·   Atrás: volver", font(27, color = C.muted), Modifier.offset(110.u, 990.u))
+        e.idioma?.let { IdiomaUI(e, it) }
+        if (e.sinopsis) SinopsisUI(e, f)
+        if (e.qr) QrUI(e, f)
     }
 }
 

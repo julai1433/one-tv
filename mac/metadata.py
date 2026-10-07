@@ -2,6 +2,7 @@
 
 - Películas {imdb-tt…} y series {tvdb-…}: Wikipedia en español (si no hay, en inglés). El artículo se
   encuentra en Wikidata por el código; se usa la sección «Argumento/Sinopsis» o, si no hay, la introducción.
+  Lo que no trae el código en el nombre (una biblioteca de Plex, por ejemplo) usa el que encontró mac/identify.py.
 - Episodios: TVmaze (en inglés; no hay fuente abierta en español).
 - Idioma original (Wikidata P364 -> código ISO 639-2 P219): sale de la misma consulta a Wikidata que
   encuentra el artículo; los episodios usan el de su serie.
@@ -110,6 +111,7 @@ class Metadata:
             self.data = json.loads(self.file.read_text())   # clave -> {"desc", "lang", "t"}
         except (OSError, ValueError):
             self.data = {}
+        self.codes = None   # códigos encontrados por el nombre (mac/identify.py); la pone la app
 
     def desc(self, key):
         return (self.data.get(key) or {}).get("desc", "")
@@ -188,27 +190,39 @@ class Metadata:
         found = 0
         movies, shows = {}, {}
         movies_lang, shows_lang = {}, {}   # solo les falta el idioma original (la sinopsis ya está)
-        for it in library.items.values():
-            if it["kind"] == "movie":
-                need_desc, need_lang = self._pending(it["id"]), self._pending_original(it["id"])
-                m = IMDB_RE.search(it["path"]) if need_desc or need_lang else None
-                if m:
-                    (movies if need_desc else movies_lang)[m.group(1)] = it["id"]
-        episodes_by_show = {}
-        for show in library.series:
+        def movie_code(it):
+            if self.codes:
+                return self.codes.movie_code(it)
+            m = IMDB_RE.search(it["path"])
+            return m.group(1) if m else ""
+
+        def show_code(show):
+            if self.codes:
+                return self.codes.show_code(show, library)
             first = library.items.get(show["poster"])
             m = TVDB_RE.search(first["path"]) if first else None
-            if not m:
+            return m.group(1) if m else ""
+
+        for it in list(library.items.values()):
+            if it["kind"] == "movie":
+                need_desc, need_lang = self._pending(it["id"]), self._pending_original(it["id"])
+                code = movie_code(it) if need_desc or need_lang else ""
+                if code:
+                    (movies if need_desc else movies_lang)[code] = it["id"]
+        episodes_by_show = {}
+        for show in list(library.series):
+            code = show_code(show)
+            if not code:
                 continue
             key = f"serie-{show['key']}"
             if self._pending(key):
-                shows[m.group(1)] = key
+                shows[code] = key
             elif self._pending_original(key):
-                shows_lang[m.group(1)] = key
+                shows_lang[code] = key
             eps = [library.items[e["id"]] for s in show["seasons"] for e in s["items"] if e["id"] in library.items]
             eps = [e for e in eps if self._pending(e["id"])]
             if eps:
-                episodes_by_show[m.group(1)] = eps
+                episodes_by_show[code] = eps
         # Películas y series: Wikipedia (una consulta a Wikidata por grupo, luego un artículo a la vez),
         # como mucho PER_RUN artículos por vuelta; lo que falte sigue en la próxima. En la misma consulta
         # viene el idioma original: a lo que solo le falta eso se le pide de a LANG_PER_RUN por vuelta.

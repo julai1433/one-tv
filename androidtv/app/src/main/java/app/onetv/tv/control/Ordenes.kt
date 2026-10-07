@@ -4,12 +4,11 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.pm.PackageInfoCompat
-import app.onetv.tv.Actual
 import app.onetv.tv.Capa
 import app.onetv.tv.Conexion
 import app.onetv.tv.Estado
-import app.onetv.tv.Peticion
 import app.onetv.tv.Tecla
+import app.onetv.tv.verEnVivo
 import app.onetv.tv.data.Song
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -235,12 +234,8 @@ class Control(private val e: Estado, private val nombre: String, private val ver
         }
     }
 
-    /** Un canal de «En vivo» (como playLive del Roku): la lista pasa por la computadora. */
-    private fun enVivo(cid: String) {
-        e.cur = Actual("live:$cid")
-        e.reproductor.empezar(Peticion(id = "live:$cid", title = "En vivo", url = e.api.url("/live/" + enc(cid) + "/index.m3u8"),
-            hls = true, startAt = 0.0, duration = 0.0, live = true))
-    }
+    /** Un canal de «En vivo» (como playLive del Roku), con su nombre: la sección En vivo lo hace (YouTube.kt). */
+    private fun enVivo(cid: String) = e.verEnVivo(cid)
 
     private fun pausaOSigue() {
         val r = e.reproductor

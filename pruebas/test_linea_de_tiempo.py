@@ -8,6 +8,7 @@ import contextlib, io, shutil, signal, subprocess, sys, tempfile, time, unittest
 from pathlib import Path
 from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mac"))
+import hostos
 import transcode
 from transcode import SEG, CopyPlan, FullPlan, Session
 
@@ -198,15 +199,17 @@ class AlDetener(unittest.TestCase):
         self.src = generar(self.dir / "largo.mkv", 120)
 
     def tearDown(self):
-        # En Windows un archivo que ffmpeg acaba de soltar (su registro) puede seguir ocupado un momento (el antivirus
-        # lo revisa): se reintenta antes de darse por vencido.
-        for _ in range(20):
+        # En Windows un archivo abierto no se puede borrar: si quedó algún ffmpeg trabajando en la carpeta, se detiene
+        # como lo hace el servidor al arrancar (hostos.stop_leftovers), y se reintenta (el antivirus puede tener el
+        # registro abierto un momento). Si aun así queda algo, la carpeta temporal se deja: no es lo que se prueba.
+        hostos.stop_leftovers(self.dir / "hls")
+        for _ in range(40):
             try:
                 self.tmp.cleanup()
                 return
             except PermissionError:
                 time.sleep(0.25)
-        self.tmp.cleanup()
+        shutil.rmtree(self.dir, ignore_errors=True)
 
     def test_no_queda_un_trozo_cortado(self):
         item = item_de(self.src, 120.0)

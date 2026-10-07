@@ -8,6 +8,9 @@
 - Lo que termina de bajarse en Transmission NO se mueve: se crea un «enlace duro» en la biblioteca (el
   mismo archivo con un segundo nombre; no ocupa espacio extra). Transmission lo sigue compartiendo desde
   donde está y, si un día se borra el torrent, la película se queda en la biblioteca.
+- Solo en las carpetas de One TV (mac/folders.py). Las de otro programa (Plex, Jellyfin…), o en las que no se puede
+  escribir, solo se leen: ahí no se mueve ni se renombra nada, y lo que termina de bajarse va a la primera carpeta de
+  One TV (si no hay ninguna, no se agrega y se avisa en el registro).
 Películas: el buscador de IMDb. Series y episodios: TVmaze. Sin cuentas ni claves.
 """
 
@@ -24,6 +27,7 @@ import urllib.request
 from pathlib import Path
 
 import hostos
+from folders import LibraryFolders
 from library import EPISODE_RE, SKIP_DIRS, SUB_EXTS, VIDEO_EXTS, YEAR_RE, _nfc, clean_title
 
 MIN_SIZE = 60 * 1024 * 1024     # lo más chico suele ser una muestra (sample)
@@ -77,11 +81,14 @@ def _is_candidate(path, now, settle=SETTLE):
 
 
 class Organizer:
-    def __init__(self, library_roots, download_roots, state_file, log=print):
+    def __init__(self, library_roots, download_roots, state_file, log=print, folders=None):
         self.roots = [Path(os.path.expanduser(r)).resolve() for r in library_roots]
         self.downloads = [Path(os.path.expanduser(d)) for d in download_roots]
         self.state_file = Path(state_file)
         self.log = log
+        # Qué carpetas son de One TV (las demás solo se leen); la app pasa la misma que usan subtítulos y doblajes.
+        self.folders = folders or LibraryFolders(library_roots, None, self.state_file.with_name("carpetas.json"), log=log)
+        self.warned_no_target = False
         self.lock = threading.Lock()
         try:
             self.state = json.loads(self.state_file.read_text())
@@ -104,6 +111,8 @@ class Organizer:
         now = time.time()
         found = []
         for root in self.roots:
+            if not self.folders.own(root):
+                continue   # de otro programa, de solo lectura o sin conectar: no se toca nada ahí
             movies, series = root / "Películas", root / "Series"
             try:
                 loose = [p for p in root.iterdir() if p.is_file()]
@@ -122,12 +131,25 @@ class Organizer:
         return self._pending(found, now)
 
     def _downloads(self, now):
+        if not self.downloads:
+            return []
         settle = DOWNLOAD_SETTLE if transmission_marks_partial() else SETTLE
         found = []
         for d in self.downloads:
             if d.is_dir():
                 found += [(p, "link") for p in d.rglob("*") if p.is_file() and _is_candidate(p, now, settle)]
+        if found and not self.target():
+            if not self.warned_no_target and self._pending(found, now):
+                self.warned_no_target = True
+                self.log("⚠ Descargas: lo que termina de bajarse no se agrega a One TV porque todas las carpetas de la "
+                         "biblioteca son de otro programa (o no se puede escribir en ellas). Para que se agregue solo, "
+                         "suma a «carpetas» una carpeta vacía para One TV (ver docs/GUIA-RAPIDA.md).")
+            return []
         return found
+
+    def target(self):
+        """Dónde se ordena lo nuevo: la primera carpeta de One TV que esté conectada (None si no hay)."""
+        return next(iter(self.folders.own_roots()), None)
 
     def _pending(self, found, now):
         done, failed = self.state["done"], self.state["failed"]
@@ -299,7 +321,11 @@ class Organizer:
                     if not dry_run:
                         self.state["done"][str(path)] = "ya estaba"
                     continue
-                dest = self.roots[0].joinpath(*info["folder"]) / (info["file"] + path.suffix.lower())
+                target = self.target()
+                if not target:   # la carpeta de One TV se desconectó a medio camino: se reintenta en la próxima vuelta
+                    actions.append({"src": str(path), "error": "no hay una carpeta de One TV conectada"})
+                    continue
+                dest = target.joinpath(*info["folder"]) / (info["file"] + path.suffix.lower())
                 actions.append({"src": str(path), "dest": str(dest), "how": how, "info": info})
                 if dry_run:
                     continue

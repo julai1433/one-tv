@@ -6,8 +6,8 @@ import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -75,12 +75,22 @@ object Imagenes {
     }
 }
 
+/**
+ * La imagen que corresponde a una dirección: solo la que se cargó para ESA dirección (si no, nada). Así una tarjeta nunca
+ * muestra la imagen de otra aunque Compose reutilice el lugar (al correrse una fila, al volver de una ficha o de otra
+ * sección).
+ */
+fun <T> imagenPara(url: String, cargada: Pair<String, T>?): T? = cargada?.takeIf { it.first == url }?.second
+
 /** Una imagen del servidor; mientras llega (o si no hay) no se dibuja nada y se ve lo de abajo. */
 @Composable
 fun ImagenRed(url: String?, modifier: Modifier = Modifier, maxLado: Int = 480, scale: ContentScale = ContentScale.Crop) {
     if (url.isNullOrEmpty()) return
-    val bmp by produceState(Imagenes.enMemoria(url), url) { if (value == null) value = Imagenes.cargar(url, maxLado) }
-    bmp?.let { Image(it, contentDescription = null, modifier = modifier, contentScale = scale) }
+    val state = remember(url) { mutableStateOf(Imagenes.enMemoria(url)?.let { url to it }) }
+    LaunchedEffect(url) {
+        if (imagenPara(url, state.value) == null) Imagenes.cargar(url, maxLado)?.let { state.value = url to it }
+    }
+    imagenPara(url, state.value)?.let { Image(it, contentDescription = null, modifier = modifier, contentScale = scale) }
 }
 
 /** Un ícono (Lucide, trazo 2) teñido del color que se pida. */

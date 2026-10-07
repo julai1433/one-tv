@@ -51,6 +51,9 @@ class Dubbing:
         self.on_added = on_added
         self.lock = threading.Lock()
         self.env_lock = threading.Lock()   # la detección de entradas de series usa el mismo entorno
+        # función(video) -> ¿se puede guardar algo junto a él? (mac/folders.py). En carpetas de otro programa, como
+        # Plex, no se agrega el doblaje: la pista iría junto al video, y ahí One TV no escribe.
+        self.can_write_next_to = None
         self.wake = threading.Event()
         self.current = None
         try:
@@ -73,6 +76,8 @@ class Dubbing:
         donor = Path(donor)
         lib = Path(have) if have else None
         if not lib or not lib.is_file() or not donor.is_file() or lib.resolve() == donor.resolve():
+            return False
+        if self.can_write_next_to and not self.can_write_next_to(lib):
             return False
         with self.lock:
             if str(donor) in self.state["jobs"]:
@@ -140,6 +145,8 @@ class Dubbing:
             return self._update(key, status="falló", why="uno de los dos archivos ya no está")
         if sidecar_path(lib).exists():
             return self._update(key, status="listo", why="ya tenía la pista")
+        if self.can_write_next_to and not self.can_write_next_to(lib):
+            return self._update(key, status="no sirve", why="el video está en una carpeta de otro programa (solo se lee)")
         python = self.python()
         lib_info, donor_info = probe(lib), probe(donor)
         if not lib_info or not donor_info:

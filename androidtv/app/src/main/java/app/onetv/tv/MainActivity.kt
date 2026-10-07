@@ -101,6 +101,7 @@ class MainActivity : ComponentActivity() {
     /** Todas las teclas del control pasan por aquí: la app decide qué hace cada una, como en el Roku. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val t = teclaDe(event.keyCode)
+        if (t == Tecla.OK && estado.conexion == Conexion.LISTA) return teclaOk(event)
         if (t != null) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 if (estado.tecla(t)) return true
@@ -109,6 +110,36 @@ class MainActivity : ComponentActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private var okAbajo = false
+    private var okLargo = false
+
+    /**
+     * OK. Donde hay opciones (tarjetas, la ficha), mantenerlo apretado es la tecla ✱ del Roku (el control de Android TV
+     * no la tiene; en Fire TV también sirve la tecla ☰): el OK normal se da al soltar. Sostenido no se repite.
+     */
+    private fun teclaOk(event: KeyEvent): Boolean {
+        val sostenible = estado.okSostenidoSirve()
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
+                okAbajo = true
+                okLargo = false
+                if (!sostenible) {
+                    okAbajo = false
+                    if (!estado.tecla(Tecla.OK)) return super.dispatchKeyEvent(event)
+                }
+            } else if (okAbajo && !okLargo && (event.isLongPress || event.repeatCount >= 1)) {
+                okLargo = true
+                estado.tecla(Tecla.OPCIONES)
+            }
+            KeyEvent.ACTION_UP -> {
+                if (okAbajo && !okLargo) estado.tecla(Tecla.OK)
+                okAbajo = false
+                okLargo = false
+            }
+        }
+        return true
     }
 
     /** Al cambiar de red (otro Wi-Fi, se reconectó), si no hay servidor se vuelve a buscar solo. */

@@ -228,8 +228,9 @@ class OpenSubtitles:
         elif imdb:
             params.update({"type": "movie", "imdb_id": int(imdb.group(1))})
         else:
-            title = re.sub(r"\s*\(\d{4}\)$", "", item["title"])
-            year = re.search(r"\((\d{4})\)$", item["title"])
+            work = item.get("work") or item["title"]   # sin «· Parte 2» ni la edición
+            title = re.sub(r"\s*\(\d{4}\)$", "", work)
+            year = re.search(r"\((\d{4})\)$", work)
             params.update({"type": "movie", "query": title})
             if year:
                 params["year"] = year.group(1)
@@ -292,8 +293,17 @@ def _retry_after(headers):
     return 1.0
 
 
+# Dónde se pueden guardar los subtítulos de un video: función(video) -> [carpetas, en orden de preferencia]. La pone la
+# app al arrancar (LibraryFolders.subtitle_dirs, en mac/folders.py): junto al video solo si su carpeta es de One TV; si
+# es de otro programa (Plex…) o no se puede escribir ahí, en la carpeta de subtítulos de One TV. Sin ella, junto al video.
+subtitle_dirs = None
+
+
 def save_next_to_video(item, data, os_lang, file_lang=None):
-    """Guarda el .srt junto al video (Película.es.opensubtitles-latino.srt): lo verá cualquier reproductor.
+    """Guarda el .srt (Película.es.opensubtitles-latino.srt) junto al video, donde lo ve cualquier reproductor; si la
+    carpeta del video es de otro programa (Plex…) o de solo lectura, en la carpeta de subtítulos de One TV (la
+    biblioteca lo encuentra igual). TODO subtítulo que se baje para un video (a mano o solo) se guarda con esta función:
+    así nunca se escribe en la carpeta de otro programa.
     file_lang: el código de idioma que va en el nombre, si no es el de siempre («ja», «kor»…). Nunca reemplaza
     un archivo que ya existe: si el nombre está ocupado, agrega -2, -3…"""
     for enc in ("utf-8-sig", "cp1252", "latin-1"):
@@ -308,11 +318,21 @@ def save_next_to_video(item, data, os_lang, file_lang=None):
     video = Path(item["path"])
     tag = "opensubtitles" + (f"-{FILE_TAG[os_lang]}" if os_lang in FILE_TAG else "")
     base = f"{video.stem}.{file_lang or FILE_LANG.get(os_lang, os_lang)}.{tag}"
-    target = video.with_name(base + ".srt")
-    n = 2
-    while target.exists():
-        target = video.with_name(f"{base}-{n}.srt")
-        n += 1
-    with open(target, "w", encoding="utf-8", newline="\n") as f:   # saltos de línea \n también en Windows
-        f.write(text)
-    return target
+    folders = subtitle_dirs(video) if subtitle_dirs else [video.parent]
+    if not folders:
+        raise SubtitleError("No hay dónde guardar el subtítulo.")
+    for n, folder in enumerate(folders):
+        try:
+            if folder != video.parent:
+                folder.mkdir(parents=True, exist_ok=True)
+            target = folder / (base + ".srt")
+            count = 2
+            while target.exists():
+                target = folder / f"{base}-{count}.srt"
+                count += 1
+            with open(target, "w", encoding="utf-8", newline="\n") as f:   # saltos de línea \n también en Windows
+                f.write(text)
+            return target
+        except OSError:
+            if n == len(folders) - 1:
+                raise

@@ -41,11 +41,14 @@ from apptv import AppTv
 from server import KeepAwake, Media, serve
 from store import Store
 from live import LiveChannels, LiveError, set_sign_key
+import subtitles_online
 from subtitles_online import OpenSubtitles, SubtitleError, save_next_to_video
+from folders import LibraryFolders, has_videos, looks_like_one_tv, read_only_setting
 from youtube import CHANNEL_ID, HISTORY_MAX, YouTube, YouTubeError, fetch_durations, video_id
 from ytdurations import DurationFiller
 from artwork import Artwork
 from metadata import Metadata
+from identify import Identifier
 from organizer import Organizer
 from dubbing import Dubbing
 from intro import IntroDetector
@@ -164,6 +167,12 @@ class App:
     def __init__(self, cfg):
         self.cfg = cfg
         self.library = Library(cfg["carpetas"], CACHE, cfg.get("titulos"))
+        # Qué carpetas de la biblioteca son de One TV (mac/folders.py). Las de otro programa (Plex, Jellyfin…) o de
+        # solo lectura no se tocan: los subtítulos que se bajen para sus videos van a datos/subtitulos.
+        self.folders = LibraryFolders(cfg["carpetas"], cfg.get("solo_leer"), DATA / "carpetas.json",
+                                      subs_dir=DATA / "subtitulos", log=say)
+        subtitles_online.subtitle_dirs = self.folders.subtitle_dirs
+        self.library.own_subs = DATA / "subtitulos"
         self.media = Media(CACHE)
         self.keep_awake = KeepAwake()
         self.transcoder = None
@@ -203,6 +212,9 @@ class App:
         self.youtube.offline = self.durations.offline = self.offline
         self.artwork = Artwork(CACHE)
         self.metadata = Metadata(CACHE)
+        # Lo que no trae {imdb-…}/{tvdb-…} en el nombre (una biblioteca de Plex) se identifica por su nombre y año.
+        self.codes = Identifier(CACHE)
+        self.artwork.codes = self.metadata.codes = self.codes
         self.library.original_lookup = self.metadata.original_langs   # idioma original de cada película/serie
         self.queue = PlayQueue(DATA / "cola.json")
         # Favoritos y listas de One TV (y lo cambiado en las del Takeout): viven en la computadora (mac/mylists.py).
@@ -214,10 +226,11 @@ class App:
         if downloads is None:   # por omisión, la carpeta de torrents de Transmission si existe
             default = hostos.user_dir("DOWNLOAD") / "Torrents"
             downloads = [str(default)] if default.is_dir() else []
-        self.organizer = Organizer(cfg["carpetas"], downloads, DATA / "organizador.json", log=say)
+        self.organizer = Organizer(cfg["carpetas"], downloads, DATA / "organizador.json", log=say, folders=self.folders)
         self._organize_lock = threading.Lock()
         self.dubbing = Dubbing(DUB_ENV, Path(__file__).resolve().parent / "dubsync.py", DATA / "doblajes.json",
                                hostos.user_dir("VIDEOS") / "Doblajes ya usados", log=say, on_added=self.dub_added)
+        self.dubbing.can_write_next_to = self.folders.can_write_next_to   # el doblaje va junto al video: solo en lo suyo
         self.intros = IntroDetector(self.dubbing, Path(__file__).resolve().parent / "introsync.py", DATA / "intros.json", log=say)
         # Subtítulos aparte (bajados o junto al video) alineados solos con la voz; la tele y la web reciben el
         # alineado (el original no se toca).
@@ -1234,6 +1247,8 @@ class App:
         while True:
             try:
                 self._organize_now(first)
+                if self.codes.fetch_all(self.library, log=say):   # identificadas por el nombre: sus pósters
+                    self.artwork.fetch_all(self.artwork.jobs_for(self.library), log=say)
                 self.metadata.fetch_all(self.library, log=say)   # de a poco: sigue donde se quedó
                 first = False
             except Exception as e:  # noqa: BLE001 - nunca debe tumbar el servidor
@@ -1519,6 +1534,9 @@ def run_server(background):
     app.library.scan(force=True)
     for w in app.library.warnings:
         say(f"⚠ {w}")
+    for root, how in app.folders.summary():
+        if "de One TV" not in how:
+            say(f"· {root}: {how}")
     items = app.library.items.values()
     count = {m: sum(1 for it in items if it["mode"] == m) for m in ("direct", "copy", "full")}
     say(f"✓ {len(app.library.items)} videos: {count['direct']} directos, {count['copy']} con video original "
@@ -2006,7 +2024,9 @@ def configure_first_time():
     protected = [Path.home() / d for d in ("Downloads", "Documents", "Desktop")]
     if hostos.MAC and any(path == p or p in path.parents for p in protected):
         print("   ⚠ macOS no deja al servicio leer esa carpeta en segundo plano; mejor usa una dentro de ~/Movies.")
-    print(f"   ✓ Carpeta lista: {path}\n")
+    print(f"   ✓ Carpeta lista: {path}")
+    read_only = _ask_other_program(folder, path, current.get("solo_leer"))
+    print()
 
     print("2) Contraseña del modo desarrollador del Roku (la que pusiste al activarlo; ver docs/INSTALAR.md, paso 6).")
     print("   Sin ella no puedo instalar la app en el Roku. Enter para ponerla más tarde en config.json.")
@@ -2041,16 +2061,53 @@ def configure_first_time():
     print()
 
     cfg = dict(current)
-    cfg.update({"carpetas": [folder if folder.startswith("~") else str(path)],
+    chosen = folder if folder.startswith("~") else str(path)
+    others = [f for f in folders if Path(f).expanduser().resolve() != path.resolve()]   # las demás se quedan
+    cfg.update({"carpetas": [chosen] + others,
                 "puerto": current.get("puerto", 8765), "roku_ip": roku_ip, "roku_password": password,
                 "musica": music_roots})
+    if read_only is not None:
+        cfg["solo_leer"] = read_only
     cfg.setdefault("titulos", {})
     cfg.setdefault("opensubtitles", {"api_key": "", "usuario": "", "clave": ""})
     CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
     CONFIG.chmod(0o600)   # tiene contraseñas: solo para ti
     print(f"✓ Guardé la configuración en {CONFIG}")
-    print(f"  Pon tus películas y series en {path} (o descárgalas con Transmission: se ordenan solas).")
+    mine = LibraryFolders(cfg["carpetas"], cfg.get("solo_leer"), DATA / "carpetas.json", log=lambda *_: None).own(path)
+    if mine is False:
+        print(f"  One TV va a leer {path} tal como está, sin mover ni cambiar nada (guía: {GUIDE_QUICK}).")
+    else:
+        print(f"  Pon tus películas y series en {path} (o descárgalas con Transmission: se ordenan solas).")
     return cfg
+
+
+GUIDE_QUICK = "docs/GUIA-RAPIDA.md"
+
+
+def _ask_other_program(folder, path, current):
+    """Si la carpeta ya tiene videos, pregunta si otro programa (Plex…) la usa. Devuelve el «solo_leer» de config.json
+    con la respuesta (None si no hubo que preguntar). Una carpeta vacía o nueva es de One TV: no se pregunta."""
+    try:
+        if not has_videos(path):
+            return None
+        ours = looks_like_one_tv(path)
+    except OSError:
+        return None
+    known = read_only_setting(current).get(path.resolve())
+    print("   Esta carpeta ya tiene videos. ¿Otro programa, como Plex, Jellyfin o Emby, usa esta carpeta?")
+    print("   Si dices que sí, One TV no moverá ni cambiará nada ahí: solo la va a leer. Si dices que no, One TV")
+    print("   acomoda lo que encuentre suelto (lo mueve y le cambia el nombre), como con una carpeta nueva.")
+    default = "s" if (known if known is not None else not ours) else "n"
+    while True:
+        answer = ask("   ¿La usa otro programa? (s/n)", default).strip().lower()
+        if answer in ("s", "si", "sí", "y", "yes", "n", "no"):
+            break
+        print("   Responde «s» (sí) o «n» (no).")
+    other = answer not in ("n", "no")
+    setting = {str(k): v for k, v in read_only_setting(current).items() if k != path.resolve()}
+    setting[folder if folder.startswith("~") else str(path)] = other
+    print("   ✓ " + ("One TV solo va a leer esta carpeta." if other else "One TV va a ordenar esta carpeta."))
+    return setting
 
 
 def main():

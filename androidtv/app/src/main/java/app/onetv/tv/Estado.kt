@@ -24,7 +24,9 @@ import app.onetv.tv.data.parseChannels
 import app.onetv.tv.data.parseLibrary
 import app.onetv.tv.data.parseMusic
 import app.onetv.tv.data.parseYtHome
+import app.onetv.tv.data.publishedText
 import app.onetv.tv.data.spokenText
+import app.onetv.tv.data.viewersText
 import app.onetv.tv.data.trackName
 import app.onetv.tv.data.yearOf
 import app.onetv.tv.net.Busqueda
@@ -66,13 +68,29 @@ data class Ficha(
     val langs: String,
     val image: String?,
     val buttons: List<Boton>,
+    val tech: String = "",          // detalles técnicos (solo en la sinopsis completa)
 )
 
-/** Un renglón de una lista para elegir (Audio y subtítulos, idioma): título, línea de apoyo y qué hace. */
-data class Opcion(val title: String, val line: String, val icon: String, val accion: String)
+/** Un renglón de una lista para elegir (Audio y subtítulos, las opciones de una tarjeta…): título, línea de apoyo, ícono
+ *  y qué hace. Desactivado: en gris y el foco lo salta. */
+data class Opcion(val title: String, val line: String, val icon: String, val accion: String, val disabled: Boolean = false)
 
-/** La lista a la derecha de la pantalla (MultiPicker del Roku). */
-data class Lista(val title: String, val note: String, val opciones: List<Opcion>, val vacio: Vacio)
+/**
+ * La lista a la derecha de la pantalla (MultiPicker del Roku). ctx dice qué se hace al elegir: «pistas» (audio y
+ * subtítulos del reproductor), «tarjeta» (OK sostenido sobre una tarjeta), «fila» (un video de la fila), «listas»
+ * (agregar a una lista) o «listq» (una lista entera a la fila).
+ */
+data class Lista(
+    val title: String,
+    val note: String,
+    val opciones: List<Opcion>,
+    val vacio: Vacio,
+    val ctx: String = "pistas",
+    val hint: String = "OK: elegir   ·   ‹ o Atrás: cerrar",
+)
+
+/** El panel «Idioma» de la ficha: audio a la izquierda y subtítulos a la derecha (como en el Roku). */
+data class PanelIdioma(val col: Int = 0, val audio: Int = 0, val subs: Int = 0, val buscar: Boolean = false)
 
 /** Lo que se ve o se escucha ahora: la pista elegida y el contexto (para el siguiente). */
 data class Actual(
@@ -129,6 +147,27 @@ class Estado(
     var lista by mutableStateOf<Lista?>(null)
     var listaIndex by mutableStateOf(0)
     private var listaDesdeReproductor = false
+    var idioma by mutableStateOf<PanelIdioma?>(null)
+    var sinopsis by mutableStateOf(false)      // la sinopsis completa encima de la ficha (OK sostenido)
+    var sinopsisPaso by mutableStateOf(0)      // cuánto se bajó en ella
+    var qr by mutableStateOf(false)            // «Compartir (código QR)»
+    var fichaWhen by mutableStateOf("")        // YouTube: «Publicado el 12 sep 2023»
+    var ayuda by mutableStateOf(false)         // «Cómo traer tu YouTube»
+
+    // YouTube: canales silenciados, páginas de canal y de lista, y lo que se sabe de cada video.
+    var hidden by mutableStateOf<List<app.onetv.tv.data.Silenciado>?>(null)
+    var hiddenError by mutableStateOf(false)
+    val paginaVideos = mutableStateMapOf<String, PaginaVideos>()
+    val buscador = Buscador(this)
+    internal val favs = HashMap<String, Boolean>()
+    internal var vidLists: Pair<String, List<org.json.JSONObject>>? = null   // video -> sus listas (/api/lists?video=)
+    internal var listsWant = ""
+    internal var tileMenu: Map<String, String>? = null
+    internal var queueMenuAt = -1
+    internal var listQueueId = ""
+    internal var seguirCanal = ""
+    var listaNueva by mutableStateOf<String?>(null)   // «Lista nueva»: el nombre que se escribe (null: cerrado)
+    var listaNuevaTeclado by mutableStateOf(0)        // cada vez que cambia, la pantalla abre el teclado
 
     var aviso by mutableStateOf("")
     var avisoError by mutableStateOf(false)
@@ -153,14 +192,20 @@ class Estado(
         when (val p = paginas.lastOrNull()) {
             is Pagina.Serie -> d.serie(p.key)
             is Pagina.MusicaPagina -> d.musicaPagina(p)
+            is Pagina.Canal -> d.canal(p, paginaVideos["canal:" + p.id], ytProgress)
+            is Pagina.ListaYt -> d.listaYt(p, paginaVideos["lista:" + p.id], ytProgress)
+            Pagina.BuscarYt -> VistaBuscar("buscar-yt", "Buscar en YouTube", true)
+            Pagina.Silenciados -> d.silenciados(hidden, hiddenError)
             null -> when (seccion) {
+                Seccion.BUSCAR -> VistaBuscar("buscar", "Buscar", false)
                 Seccion.INICIO -> d.inicio(ytProgress)
                 Seccion.ESPANOL -> d.espanol()
                 Seccion.PELICULAS -> d.peliculas()
                 Seccion.SERIES -> d.series()
                 Seccion.YOUTUBE -> d.youtube(channels, ytProgress)
                 Seccion.MUSICA -> d.musica()
-                Seccion.FILA -> d.fila()
+                Seccion.EN_VIVO -> d.enVivo()
+                Seccion.FILA -> d.fila(hidden)
             }
         }
     }
@@ -249,10 +294,10 @@ class Estado(
                 lib = l
                 fallos = 0
                 for (e in l.cont) if (e.kind == "yt") {
-                    ytTitles[e.id] = e
+                    recordarYt(e)
                     if (e.p > 0) ytProgress[e.id] = e.p
                 }
-                for (e in l.youtube + l.queue) if (e.kind == "yt") ytTitles.putIfAbsent(e.id, e)
+                for (e in l.youtube + l.queue + l.history) if (e.kind == "yt") recordarYt(e)
                 if (sinServidor) sinServidor = false
                 if (first) ocultarAviso()
                 if (l.items.isEmpty()) mostrarAviso("No hay videos. Revisa «carpetas» en config.json de la computadora.", false, auto = false)
@@ -287,8 +332,9 @@ class Estado(
         scope.launch {
             try {
                 val h = parseYtHome(api.get("/api/yt/home?device_id=$deviceId"))
-                for (e in h.cont + h.new + h.recent + h.because + h.favorites) ytTitles[e.id] = e
+                for (e in h.cont + h.new + h.recent + h.because + h.favorites) recordarYt(e)
                 for (e in h.cont) if (e.p > 0) ytProgress[e.id] = e.p
+                for (e in h.favorites) favs[e.id] = true
                 ytHome = h
             } catch (_: Exception) {
             }
@@ -346,6 +392,18 @@ class Estado(
 
     fun tecla(t: Tecla): Boolean {
         if (conexion != Conexion.LISTA) return teclaConexion(t)
+        if (ayuda) {
+            if (t == Tecla.ATRAS) ayuda = false
+            return true
+        }
+        if (listaNueva != null) {   // «Lista nueva»: el campo y el teclado de la TV
+            when (t) {
+                Tecla.ATRAS -> listaNueva = null
+                Tecla.OK -> listaNuevaTeclado++
+                else -> {}
+            }
+            return true
+        }
         lista?.let { return teclaLista(t, it) }
         if (reproductor.visible) return reproductor.tecla(t)
         ficha?.let { return teclaFicha(t, it) }
@@ -361,10 +419,15 @@ class Estado(
         return when (v) {
             is VistaFilas -> teclaFilas(t, v)
             is VistaCuadricula -> teclaCuadricula(t, v)
+            is VistaBuscar -> buscador.tecla(t, v)
         }
     }
 
     var conexionBoton by mutableStateOf(0)
+
+    /** ¿Aquí OK sostenido abre opciones? (tarjetas y la ficha; en el reproductor, las listas y el menú, OK es inmediato). */
+    fun okSostenidoSirve() = conexion == Conexion.LISTA && !reproductor.visible && lista == null && !ayuda && !menuAbierto && listaNueva == null &&
+        !sinServidor && idioma == null && !qr
 
     private fun teclaConexion(t: Tecla): Boolean {
         when (conexion) {
@@ -420,9 +483,31 @@ class Estado(
         paginas.clear()
         if (s == Seccion.INICIO || s == Seccion.YOUTUBE) cargarYouTube()
         if (s == Seccion.MUSICA && music == null) cargarMusica()
+        if (s == Seccion.FILA) cargarSilenciados()   // cuántos canales silenciados hay (Ajustes generales)
+        if (s == Seccion.BUSCAR) buscador.abrir(false)
     }
 
-    private fun atrasEnVista() {
+    fun abrirPagina(p: Pagina) {
+        paginas.add(p)
+        when (p) {
+            is Pagina.Canal -> {
+                focoCuadricula["canal:" + p.id] = 0
+                cargarPagina("canal:" + p.id, "/api/yt/channel?id=" + p.id, p.title)
+            }
+            is Pagina.ListaYt -> {
+                focoCuadricula["lista:" + p.id] = 0
+                cargarPagina("lista:" + p.id, "/api/yt/playlist?id=" + p.id, p.title)
+            }
+            Pagina.Silenciados -> {
+                focoCuadricula["silenciados"] = 0
+                cargarSilenciados()
+            }
+            Pagina.BuscarYt -> buscador.abrir(true)
+            else -> {}
+        }
+    }
+
+    internal fun atrasEnVista() {
         if (paginas.isNotEmpty()) paginas.removeAt(paginas.size - 1) else abrirMenu()
     }
 
@@ -432,12 +517,23 @@ class Estado(
             return true
         }
         val (r0, c0) = focoFilas[v.key] ?: (0 to 0)
+        if (r0 < 0) {   // en el botón de arriba («Buscar en YouTube»)
+            when (t) {
+                Tecla.ABAJO -> focoFilas[v.key] = 0 to 0
+                Tecla.OK -> abrirPagina(Pagina.BuscarYt)
+                Tecla.IZQ -> abrirMenu()
+                Tecla.ATRAS -> atrasEnVista()
+                else -> {}
+            }
+            return true
+        }
         val r = r0.coerceIn(0, v.filas.size - 1)
         val fila = v.filas[r]
         val n = if (fila.tarjetas.isEmpty()) 1 else fila.tarjetas.size
         val c = c0.coerceIn(0, n - 1)
         when (t) {
             Tecla.ARRIBA -> if (r > 0) focoFilas[v.key] = (r - 1) to colPara(v.filas[r - 1], c)
+            else if (v.topButton.isNotEmpty()) focoFilas[v.key] = -1 to c
             Tecla.ABAJO -> if (r < v.filas.size - 1) focoFilas[v.key] = (r + 1) to colPara(v.filas[r + 1], c)
             Tecla.IZQ -> if (c > 0) focoFilas[v.key] = r to (c - 1) else abrirMenu()   // ← desde la primera columna
             Tecla.DER -> if (c < n - 1) focoFilas[v.key] = r to (c + 1)
@@ -446,18 +542,23 @@ class Estado(
                 else activar(fila.tarjetas[c].id, t == Tecla.PLAY)
             }
             Tecla.ATRAS -> atrasEnVista()
-            Tecla.OPCIONES -> {
-                mostrarAviso("Actualizando la biblioteca…")
-                cargarBiblioteca()
-            }
+            Tecla.OPCIONES -> opcionesTarjeta(fila.tarjetas.getOrNull(c))
             else -> return false
         }
         return true
     }
 
+    /** OK sostenido (la tecla ✱ del Roku) sobre una tarjeta: sus opciones; si no tiene, se actualiza la biblioteca. */
+    private fun opcionesTarjeta(t: Tarjeta?) {
+        if (t != null && t.menu && abrirMenuTarjeta(t.id)) return
+        mostrarAviso("Actualizando la biblioteca…")
+        cargarBiblioteca()
+    }
+
     private fun colPara(f: Fila, c: Int) = if (f.tarjetas.isEmpty()) 0 else c.coerceIn(0, f.tarjetas.size - 1)
 
-    fun columnas(v: VistaCuadricula) = if (v.forma == Forma.GRID_CUADRADO) 7 else 8
+    /** Columnas que caben entre el menú y el borde derecho (1752 de ancho), como en el Roku. */
+    fun columnas(v: VistaCuadricula) = (1752 + v.forma.gap) / (v.forma.w + v.forma.gap)
 
     private fun teclaCuadricula(t: Tecla, v: VistaCuadricula): Boolean {
         val cols = columnas(v)
@@ -467,7 +568,7 @@ class Estado(
         if (i >= n) i = n - 1
         if (i < 0 && !hasChips) i = 0
         if (i == -1) {   // en los botones de arriba
-            val chip = focoChip[v.key] ?: v.chips.indexOfFirst { it.id == v.chipValue }.coerceAtLeast(0)
+            val chip = (focoChip[v.key] ?: v.chips.indexOfFirst { it.id == v.chipValue }).coerceIn(0, v.chips.size - 1)
             when (t) {
                 Tecla.IZQ -> if (chip > 0) focoChip[v.key] = chip - 1 else abrirMenu()
                 Tecla.DER -> if (chip < v.chips.size - 1) focoChip[v.key] = chip + 1
@@ -499,10 +600,7 @@ class Estado(
             Tecla.ADELANTAR -> focoCuadricula[v.key] = (i + cols * 3).coerceAtMost(n - 1)
             Tecla.ATRASAR -> focoCuadricula[v.key] = (i - cols * 3).coerceAtLeast(0)
             Tecla.ATRAS -> atrasEnVista()
-            Tecla.OPCIONES -> {
-                mostrarAviso("Actualizando la biblioteca…")
-                cargarBiblioteca()
-            }
+            Tecla.OPCIONES -> opcionesTarjeta(v.tarjetas.getOrNull(i))
             else -> return false
         }
         return true
@@ -511,6 +609,10 @@ class Estado(
     /** Filtros de Películas y Series (se recuerdan en esta TV) o los botones de una página de música. */
     private fun controlCuadricula(v: VistaCuadricula, id: String) {
         val p = paginas.lastOrNull()
+        if (p is Pagina.Canal || p is Pagina.ListaYt) {
+            controlPagina(p, id)
+            return
+        }
         if (p is Pagina.MusicaPagina) {
             val ids = datos?.musicaPaginaTracks(p).orEmpty()
             if (ids.isEmpty()) return
@@ -527,6 +629,13 @@ class Estado(
         when (name) {
             "movies" -> abrirSeccion(Seccion.PELICULAS)
             "home" -> abrirSeccion(Seccion.INICIO)
+            "youtube" -> abrirSeccion(Seccion.YOUTUBE)
+            "ytsearch" -> abrirPagina(Pagina.BuscarYt)
+            "takeout" -> ayuda = true
+            "refresh" -> {
+                mostrarAviso("Buscando otra vez…")
+                cargarBiblioteca()
+            }
             "filter-all" -> (vista as? VistaCuadricula)?.let { controlCuadricula(it, "all") }
             "rescan" -> {
                 mostrarAviso("Buscando películas y series nuevas…")
@@ -590,8 +699,13 @@ class Estado(
                 }
             }
             id.startsWith("q:") -> tomarDeLaFila(id.removePrefix("q:").toIntOrNull() ?: 0)
-            id.startsWith("list:") || id.startsWith("chan:") ->
-                mostrarAviso("Las listas y los canales de YouTube se abren desde la web por ahora.")
+            id.startsWith("chan:") -> abrirPagina(Pagina.Canal(id.removePrefix("chan:"), tituloTarjeta(id)))
+            id.startsWith("list:") -> if (quick) reproducirLista(id.removePrefix("list:"))
+            else abrirPagina(Pagina.ListaYt(id.removePrefix("list:"), tituloTarjeta(id)))
+            id.startsWith("live:") -> verEnVivo(id.removePrefix("live:"))
+            id.startsWith("unhide:") -> if (!quick) volverAMostrar(id.removePrefix("unhide:"))   // ▶ no lo vuelve a mostrar
+            id.startsWith("set:") -> ajuste(id.removePrefix("set:"))
+            id == "ytmore" -> buscador.cargarMas()
             l.items.containsKey(id) -> empezarItem(id, quick)
         }
     }
@@ -632,19 +746,54 @@ class Estado(
         buttons += Boton("queue-next", "A continuación", "list-start")
         buttons += Boton("queue", "Al final de la fila", "list-plus")
         buttons += Boton("lang", langButtonText(it, c), "languages")
-        ficha = Ficha("item", c.id, title, subtitle, meta, it.dub, spokenText(it), datos?.abs(it.poster), buttons)
+        ficha = Ficha("item", c.id, title, subtitle, meta, it.dub, spokenText(it), datos?.abs(it.poster), buttons, techText(it))
         if (!keepFocus) {
             fichaBoton = 0
             fichaMensaje = ""
-            fichaDesc = ""
-            scope.launch {
-                try {
-                    val d = api.get("/api/info?id=${c.id}").optString("desc", "")
-                    if (ficha?.id == c.id) fichaDesc = d
-                } catch (_: Exception) {
-                }
-            }
+            fichaWhen = ""
+            cerrarEncimaDeFicha()
+            cargarSinopsis(c.id, "/api/info?id=${c.id}")
         }
+    }
+
+    /** La sinopsis se pide aparte (el catálogo no trae textos largos): mientras llega, «Buscando la sinopsis…». */
+    private fun cargarSinopsis(id: String, path: String, alLlegar: (JSONObject) -> Unit = {}) {
+        fichaDesc = "Buscando la sinopsis…"
+        scope.launch {
+            val o = try {
+                api.get(path, 30000)
+            } catch (_: Exception) {
+                null
+            }
+            if (ficha?.id != id) return@launch
+            fichaDesc = o?.optString("desc", "").orEmpty().ifEmpty { "Sin sinopsis todavía." }
+            if (o != null) alLlegar(o)
+        }
+    }
+
+    private fun cerrarEncimaDeFicha() {
+        idioma = null
+        sinopsis = false
+        qr = false
+    }
+
+    /** Lo técnico, aparte (solo en la sinopsis completa). */
+    private fun techText(it: Item): String {
+        val lines = mutableListOf<String>()
+        lines += when {
+            it.mode == "copy" -> "Video original; la computadora solo convierte el audio (${it.convertReason})."
+            it.direct == null -> "La computadora convierte el video mientras se ve (${it.convertReason})."
+            else -> "Se reproduce directo, sin convertir."
+        }
+        for (t in it.audio) {
+            var line = "Audio: " + trackName(t)
+            val tech = t.label.substringAfter(" · ", "")
+            if (tech.isNotEmpty()) line += " — $tech"
+            if (t.ext) line += " (pista aparte, llega por la computadora)"
+            lines += line
+        }
+        for (sub in it.subs) lines += "Subtítulos: " + trackName(sub)
+        return lines.joinToString("\n")
     }
 
     private fun langButtonText(it: Item, c: Actual): String {
@@ -654,37 +803,95 @@ class Estado(
         return text
     }
 
-    fun fichaYouTube(vid: String) {
+    /** La ficha de un video. keepFocus: solo se rehacen los textos y botones (Favorito cambió, se supo que es en vivo)
+     *  sin mover el foco ni cerrar lo que esté abierto encima. */
+    fun fichaYouTube(vid: String, keepFocus: Boolean = false) {
         val e = ytTitles[vid]
-        cur = Actual("yt:$vid", yt = true)
+        if (!keepFocus) cur = Actual("yt:$vid", yt = true)
+        val live = e?.live == true
+        val meta = mutableListOf<String>()
+        if (live) meta += "EN VIVO"
+        e?.channel?.takeIf { it.isNotEmpty() }?.let { meta += it }
+        if (live) viewersText(e?.viewers ?: 0).takeIf { it.isNotEmpty() }?.let { meta += it }
+        if (!live) e?.duration?.takeIf { it > 0 }?.let { meta += fmtClock(it) }
         val p = ytProgress[vid] ?: 0.0
         val buttons = mutableListOf<Boton>()
-        if (p > 30) {
-            buttons += Boton("yt-resume", "Continuar desde " + fmtClock(p), "play")
-            buttons += Boton("yt-play", "Desde el principio", "rotate-ccw")
-        } else buttons += Boton("yt-play", "Reproducir", "play")
-        buttons += Boton("yt-next", "A continuación", "list-start")
-        buttons += Boton("yt-queue", "Al final de la fila", "list-plus")
-        val meta = listOfNotNull(e?.channel?.ifEmpty { null }, e?.duration?.takeIf { it > 0 }?.let { fmtClock(it) }).joinToString("   ·   ")
-        ficha = Ficha("yt", vid, e?.title?.ifEmpty { null } ?: "YouTube", "", meta, false, "", datos?.abs("/yt/$vid/thumb-hd.jpg"), buttons)
+        val fav = favs[vid] == true
+        val favBtn = if (fav) Boton("yt-fav", "En Favoritos", "heart-filled") else Boton("yt-fav", "Favorito", "heart")
+        if (live) {
+            // Una transmisión en vivo no termina ni se retoma: no va a la fila; su canal puede ir a «En vivo».
+            buttons += Boton("yt-play", "Ver en vivo", "play")
+            if (e?.channelId?.isNotEmpty() == true) buttons += Boton("yt-addlive", "Agregar a En vivo", "radio")
+            buttons += favBtn
+            buttons += Boton("yt-lists", "Agregar a lista", "bookmark-plus")
+            buttons += Boton("share", "Compartir (código QR)", "qr-code")
+            buttons += Boton("yt-mute", "Silenciar canal", "eye-off", danger = true)
+        } else {
+            if (p > 30) {
+                buttons += Boton("yt-resume", "Continuar desde " + fmtClock(p), "play")
+                buttons += Boton("yt-play", "Desde el principio", "rotate-ccw")
+            } else buttons += Boton("yt-play", "Reproducir ahora", "play")
+            buttons += Boton("yt-next", "A continuación", "list-start")
+            buttons += Boton("yt-queue", "Al final de la fila", "list-plus")
+            buttons += favBtn
+            buttons += Boton("yt-lists", "Agregar a lista", "bookmark-plus")
+            buttons += Boton("share", "Compartir (código QR)", "qr-code")
+            buttons += Boton("yt-dismiss", "No me interesa", "ban")
+            buttons += Boton("yt-mute", "Silenciar canal", "eye-off", danger = true)
+        }
+        ficha = Ficha("yt", vid, e?.title?.ifEmpty { null } ?: "YouTube", "", meta.joinToString("   ·   "), false, "",
+            datos?.abs("/yt/$vid/thumb-hd.jpg"), buttons)
+        if (keepFocus) {
+            fichaBoton = fichaBoton.coerceAtMost(buttons.size - 1)
+            return
+        }
         fichaBoton = 0
         fichaMensaje = ""
-        fichaDesc = ""
-        scope.launch {
-            try {
-                val o = api.get("/api/yt/info?id=$vid", 30000)
-                if (ficha?.id == vid) fichaDesc = o.optString("desc", "")
-            } catch (_: Exception) {
-            }
+        fichaWhen = if (!live && e != null) publishedText(e.published, e.approx) else ""
+        cerrarEncimaDeFicha()
+        cargarListasDelVideo(vid)   // Favorito y «Agregar a lista»
+        cargarSinopsis(vid, "/api/yt/info?id=$vid") { o ->
+            // La ficha sabe por la computadora si es una transmisión en vivo (cambian los botones) y de qué canal.
+            val known = ytTitles[vid] ?: Entry("yt", vid, title = o.optString("title", ""))
+            val isLive = o.optBoolean("live", false)
+            val chan = o.optString("channel_id", "")
+            val learned = known.copy(live = isLive, viewers = o.optInt("viewers", known.viewers),
+                channelId = chan.ifEmpty { known.channelId }, channel = known.channel.ifEmpty { o.optString("channel", "") },
+                duration = if (known.duration > 0) known.duration else o.optDouble("duration", 0.0))
+            ytTitles[vid] = learned
+            val published = o.optLong("published", 0)
+            if (published > 0 && !isLive) fichaWhen = publishedText(published, o.optBoolean("published_approx", false))
+            if (learned != known) fichaYouTube(vid, true)
         }
     }
 
     private fun teclaFicha(t: Tecla, f: Ficha): Boolean {
+        if (qr) {   // solo Atrás: el mismo OK que eligió «Compartir» no la cierra
+            if (t == Tecla.ATRAS) qr = false
+            return true
+        }
+        if (sinopsis) {
+            when (t) {
+                Tecla.ATRAS, Tecla.OPCIONES -> sinopsis = false
+                Tecla.ABAJO -> sinopsisPaso++
+                Tecla.ARRIBA -> if (sinopsisPaso > 0) sinopsisPaso--
+                else -> {}
+            }
+            return true
+        }
+        idioma?.let {
+            teclaIdioma(t, it)
+            return true
+        }
         when (t) {
             Tecla.IZQ -> if (fichaBoton > 0) fichaBoton--
             Tecla.DER -> if (fichaBoton < f.buttons.size - 1) fichaBoton++
             Tecla.OK -> botonFicha(f, f.buttons[fichaBoton].id)
             Tecla.PLAY -> botonFicha(f, f.buttons[0].id)
+            Tecla.OPCIONES -> {
+                sinopsisPaso = 0
+                sinopsis = true
+            }
             Tecla.ATRAS -> ficha = null
             else -> {}
         }
@@ -701,10 +908,22 @@ class Estado(
             "queue", "queue-next" -> alaFila("item", f.id, "", id == "queue-next")
             "yt-queue", "yt-next" -> alaFila("yt", f.id, f.title, id == "yt-next")
             "lang" -> abrirIdioma()
+            "share" -> qr = true
+            "yt-fav" -> pulsarFavorito(f.id)
+            "yt-lists" -> agregarALista(f.id)
+            "yt-dismiss" -> noMeInteresa(f.id, desdeFicha = true)
+            "yt-mute" -> silenciarDesdeVideo(f.id, desdeFicha = true)
+            "yt-addlive" -> agregarAEnVivo(f.id)
         }
     }
 
-    private fun alaFila(kind: String, id: String, title: String, front: Boolean) {
+    /** Mensaje bajo los botones de la ficha: en limón, o en guinda claro si es un problema. */
+    fun mensajeFicha(text: String, error: Boolean = false) {
+        fichaMensaje = text
+        fichaMensajeError = error
+    }
+
+    internal fun alaFila(kind: String, id: String, title: String, front: Boolean) {
         scope.launch {
             try {
                 val r = api.post("/api/queue/add", JSONObject().put("kind", kind).put("id", id).put("title", title).put("front", front).put("device_id", deviceId))
@@ -738,31 +957,135 @@ class Estado(
         return out
     }
 
+    /** «Idioma» en la ficha: audio a la izquierda, subtítulos a la derecha; el foco empieza en lo elegido. */
     private fun abrirIdioma() {
-        listaDesdeReproductor = false
-        abrirLista(Lista("Idioma", ficha?.title.orEmpty(), opcionesPistas(), Vacio("Un solo audio", "Este video no tiene otros audios ni subtítulos.")))
+        val c = cur ?: return
+        val it = c.item ?: return
+        idioma = PanelIdioma(col = if (it.audio.isEmpty()) 1 else 0, audio = c.audio.coerceAtLeast(0), subs = c.sub + 1)
     }
 
+    /** Las opciones de la columna de subtítulos (también en modo «¿En qué idioma?» para buscarlos en internet). */
+    fun subsDelPanel(p: PanelIdioma): List<String> {
+        if (p.buscar) return listOf("En español", "En inglés", "Volver")
+        val it = cur?.item ?: return emptyList()
+        return listOf("Sin subtítulos") + it.subs.map { trackName(it) } + "Buscar subtítulos en internet"
+    }
+
+    private fun teclaIdioma(t: Tecla, p: PanelIdioma) {
+        val c = cur ?: return
+        val it = c.item ?: return
+        val subs = subsDelPanel(p)
+        when (t) {
+            Tecla.ATRAS -> idioma = if (p.buscar) p.copy(buscar = false, subs = 0) else null
+            Tecla.DER -> if (p.col == 0) idioma = p.copy(col = 1)
+            Tecla.IZQ -> if (p.col == 1 && it.audio.isNotEmpty()) idioma = p.copy(col = 0)
+            Tecla.ARRIBA -> idioma = if (p.col == 0) p.copy(audio = (p.audio - 1).coerceAtLeast(0)) else p.copy(subs = (p.subs - 1).coerceAtLeast(0))
+            Tecla.ABAJO -> idioma = if (p.col == 0) p.copy(audio = (p.audio + 1).coerceAtMost(it.audio.size - 1))
+            else p.copy(subs = (p.subs + 1).coerceAtMost(subs.size - 1))
+            Tecla.OK -> if (p.col == 0) {
+                if (p.audio in it.audio.indices) {
+                    c.audio = p.audio
+                    guardarPreferencia(it, "audio", p.audio)
+                    abrirFichaItem(true)
+                }
+            } else if (p.buscar) {
+                idioma = p.copy(buscar = false, subs = 0)
+                if (p.subs == 0) buscarSubtitulos("spa") else if (p.subs == 1) buscarSubtitulos("eng")
+            } else if (p.subs == subs.size - 1) {
+                idioma = p.copy(buscar = true, subs = 0)
+            } else {
+                c.sub = p.subs - 1
+                guardarPreferencia(it, "sub", c.sub)
+                abrirFichaItem(true)
+            }
+            else -> {}
+        }
+    }
+
+    /** Elegir una pista a mano guarda la preferencia de ESTA TV («original» o el idioma). */
+    private fun guardarPreferencia(it: Item, kind: String, n: Int) {
+        val body = JSONObject()
+        if (kind == "audio") body.put("audioLang", audioPref(it, n))
+        else body.put("subLang", if (n in it.subs.indices) it.subs[n].lang else "off")
+        scope.launch {
+            try {
+                api.post("/api/prefs", body.put("device_id", deviceId))
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /** «Buscar subtítulos en internet»: la computadora los baja y quedan elegidos. */
+    private fun buscarSubtitulos(lang: String) {
+        val c = cur ?: return
+        mensajeFicha("Buscando subtítulos en internet…")
+        scope.launch {
+            try {
+                val r = api.post("/api/subs/auto", JSONObject().put("id", c.id).put("lang", lang).put("device_id", deviceId), 120000)
+                val item = r.optJSONObject("item")
+                if (r.optBoolean("ok") && item != null && cur?.id == c.id) {
+                    val it = app.onetv.tv.data.parseItem(item)
+                    lib = lib?.let { l -> l.copy(items = l.items + (c.id to it)) }
+                    val now = Actual(c.id, it, c.audio, r.optInt("sub", -1))
+                    cur = now
+                    guardarPreferencia(it, "sub", now.sub)
+                    mensajeFicha("Subtítulos descargados: " + r.optString("label", ""))
+                    if (ficha != null) abrirFichaItem(true)
+                } else mensajeFicha(r.optString("error", "No se encontraron subtítulos."), true)
+            } catch (_: Exception) {
+                mensajeFicha("No se pudo buscar: sin conexión con la computadora.", true)
+            }
+        }
+    }
+
+    /** «Audio y subtítulos» del panel del reproductor: con YouTube, el audio original o un doblaje (solo si se pide). */
     fun abrirAudioYSubtitulos() {
         listaDesdeReproductor = true
-        abrirLista(Lista("Audio y subtítulos", reproductor.req?.title.orEmpty(), opcionesPistas(),
+        val r = reproductor.req
+        val opciones = if (r?.yt == true) {
+            val dubs = reproductor.doblajes
+            if (dubs.isEmpty()) emptyList() else listOf(Opcion("Audio original", nowText(r.dub.isEmpty()), "audio", "dub:")) +
+                dubs.map { d -> Opcion("Audio: " + d.name + " (doblaje)", if (r.dub == d.lang) "Es el que suena ahora   ·   voz hecha por YouTube" else "Voz hecha por YouTube", "languages", "dub:" + d.lang) }
+        } else opcionesPistas()
+        abrirLista(Lista("Audio y subtítulos", r?.title.orEmpty(), opciones,
             Vacio("Un solo audio", "Este video no tiene otros audios ni subtítulos.")))
     }
 
-    private fun abrirLista(l: Lista) {
+    private fun nowText(b: Boolean) = if (b) "Es el que suena ahora" else ""
+
+    /** Abre una lista a la derecha con el foco en la que suena ahora (o en la primera que se pueda elegir). */
+    fun abrirLista(l: Lista, foco: Int = -1) {
         lista = l
-        listaIndex = l.opciones.indexOfFirst { it.line.isNotEmpty() && it.accion.startsWith("audio") }.coerceAtLeast(0)
+        val now = l.opciones.indexOfFirst { it.line.startsWith("Es el que suena ahora") && (it.accion.startsWith("audio") || it.accion.startsWith("dub")) }
+        val first = l.opciones.indexOfFirst { !it.disabled }
+        listaIndex = if (foco in l.opciones.indices) foco else if (now >= 0) now else first.coerceAtLeast(0)
     }
 
     private fun teclaLista(t: Tecla, l: Lista): Boolean {
         when (t) {
-            Tecla.ARRIBA -> if (listaIndex > 0) listaIndex--
-            Tecla.ABAJO -> if (listaIndex < l.opciones.size - 1) listaIndex++
-            Tecla.OK -> l.opciones.getOrNull(listaIndex)?.let { elegirPista(it.accion) }
-            Tecla.ATRAS, Tecla.IZQ -> lista = null
-            else -> if (listaDesdeReproductor) return reproductor.tecla(t)
+            Tecla.ARRIBA -> (listaIndex - 1 downTo 0).firstOrNull { !l.opciones[it].disabled }?.let { listaIndex = it }
+            Tecla.ABAJO -> (listaIndex + 1 until l.opciones.size).firstOrNull { !l.opciones[it].disabled }?.let { listaIndex = it }
+            Tecla.OK -> l.opciones.getOrNull(listaIndex)?.takeIf { !it.disabled }?.let { elegirEnLista(l, it) }
+            Tecla.ATRAS, Tecla.IZQ -> {
+                lista = null
+                if (l.ctx == "listas") listsWant = ""
+            }
+            else -> if (listaDesdeReproductor && l.ctx == "pistas") return reproductor.tecla(t)
         }
         return true
+    }
+
+    private fun elegirEnLista(l: Lista, o: Opcion) {
+        when (l.ctx) {
+            "tarjeta" -> elegirEnMenuTarjeta(o.accion)
+            "fila" -> elegirEnMenuFila(o.accion)
+            "listas" -> elegirLista(o.accion)
+            "listq" -> elegirListaALaFila(o.accion)
+            else -> if (o.accion.startsWith("dub:")) {
+                lista = null
+                reproductor.cambiarDoblaje(o.accion.removePrefix("dub:"))
+            } else elegirPista(o.accion)
+        }
     }
 
     private fun elegirPista(accion: String) {
@@ -785,7 +1108,7 @@ class Estado(
             } catch (_: Exception) {
             }
         }
-        if (listaDesdeReproductor) reproductor.cambiarPistas(c) else abrirFichaItem(true)
+        reproductor.cambiarPistas(c)
     }
 
     // ---------- reproducir ----------
@@ -823,8 +1146,17 @@ class Estado(
         val e = ytTitles[vid]
         cur = Actual("yt:$vid", yt = true)
         ficha = null
-        reproductor.empezar(Peticion(id = "yt:$vid", title = e?.title?.ifEmpty { null } ?: "YouTube", url = api.url("/yt/$vid/index.m3u8"),
-            hls = true, startAt = at, duration = e?.duration ?: 0.0, yt = true))
+        menuAbierto = false
+        reproductor.empezar(peticionYouTube(vid, at))
+    }
+
+    /** Lo que el reproductor necesita para un video de YouTube, con su audio original (dub: un doblaje pedido). */
+    fun peticionYouTube(vid: String, at: Double, dub: String = ""): Peticion {
+        val e = ytTitles[vid]
+        val url = api.url("/yt/$vid/index.m3u8") + if (dub.isNotEmpty()) "?dub=$dub" else ""
+        return Peticion(id = "yt:$vid", title = e?.title?.ifEmpty { null } ?: "YouTube", url = url, hls = true, startAt = at,
+            duration = e?.duration ?: 0.0, yt = true, live = e?.live == true, dub = dub, checked = dub.isNotEmpty(),
+            chapterTitles = chapterTitlesOn(lib?.prefs.orEmpty()))
     }
 
     fun escucharLista(ids: List<String>, index: Int, shuffle: Boolean) {
@@ -867,7 +1199,7 @@ class Estado(
         return (i + dir) in tracks.indices
     }
 
-    private fun tomarDeLaFila(index: Int) {
+    internal fun tomarDeLaFila(index: Int) {
         scope.launch {
             try {
                 val r = api.post("/api/queue/take", JSONObject().put("index", index).put("device_id", deviceId))

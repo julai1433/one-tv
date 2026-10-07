@@ -58,7 +58,20 @@ data class Entry(
     val live: Boolean = false,
     val whenText: String = "",   // historial: «hoy 21:04»
     val done: Boolean = false,
+    val channelId: String = "",  // YouTube: el canal (para «Silenciar canal» y «Agregar a En vivo»)
+    val viewers: Int = 0,        // transmisión en vivo: cuántos la ven
+    val private: Boolean = false,
+    val approx: Boolean = false, // la fecha de publicación es aproximada («hace 3 años»)
 )
+
+/** Un canal de «En vivo» (/api/library, campo live). */
+data class LiveChannel(val id: String, val name: String, val host: String, val poster: String)
+
+/** Una marca para saltar (la intro de una serie): de start a end, con su texto («Saltar intro»). */
+data class Marca(val start: Double, val end: Double, val label: String)
+
+/** Un doblaje de YouTube que se puede pedir (/api/yt/info, campo dubs). */
+data class Doblaje(val lang: String, val name: String)
 
 data class Library(
     val items: Map<String, Item>,
@@ -72,10 +85,14 @@ data class Library(
     val history: List<Entry>,
     val prefs: Map<String, String>,
     val youtube: List<Entry>,
+    val live: List<LiveChannel> = emptyList(),
 )
 
 data class Playlist(val id: String, val title: String, val count: Int, val thumb: String)
 data class Channel(val id: String, val title: String, val pinned: Boolean)
+
+/** Lo que se sabe de un canal silenciado (/api/yt/hidden). */
+data class Silenciado(val id: String, val title: String)
 
 data class YtHome(
     val cont: List<Entry>,
@@ -138,7 +155,8 @@ fun parseItem(o: JSONObject): Item {
 fun parseEntry(o: JSONObject, defaultKind: String = "item") = Entry(
     kind = o.str("kind").ifEmpty { defaultKind }, id = o.str("id"), title = o.str("title"), thumb = o.str("thumb"),
     p = o.num("p"), duration = o.num("duration"), channel = o.str("channel"), published = o.optLong("published", 0),
-    live = o.flag("live"), whenText = o.str("when"), done = o.flag("done"),
+    live = o.flag("live"), whenText = o.str("when"), done = o.flag("done"), channelId = o.str("channel_id"),
+    viewers = o.optInt("viewers", 0), private = o.flag("private"), approx = o.flag("published_approx"),
 )
 
 fun parseLibrary(o: JSONObject): Library {
@@ -169,6 +187,7 @@ fun parseLibrary(o: JSONObject): Library {
         queue = o.optJSONArray("queue").list { parseEntry(it, "item") },
         history = o.optJSONArray("history").list { parseEntry(it, "item") },
         prefs = prefs, youtube = o.optJSONArray("youtube").list { parseEntry(it, "yt") },
+        live = o.optJSONArray("live").list { c -> LiveChannel(c.str("id"), c.str("name"), c.str("host"), c.str("poster")) },
     )
 }
 
@@ -186,6 +205,21 @@ fun parseYtHome(o: JSONObject): YtHome {
 }
 
 fun parseChannels(o: JSONObject) = o.optJSONArray("channels").list { c -> Channel(c.str("id"), c.str("title"), c.flag("pinned")) }
+
+fun parseHidden(o: JSONObject) = o.optJSONArray("channels").list { c -> Silenciado(c.str("id"), c.str("title")) }
+
+/** Videos de un canal, de una lista o de una búsqueda (/api/yt/channel, /api/yt/playlist, /api/yt/search). */
+fun parseVideos(arr: JSONArray?) = arr.list { parseEntry(it, "yt") }
+
+/** /api/marks: solo lo que se puede saltar (la intro); los capítulos de YouTube van aparte. */
+fun parseMarks(o: JSONObject) = o.optJSONArray("marks").list { m ->
+    val start = m.num("start")
+    val end = m.num("end")
+    if (m.str("kind") == "chapter" || !m.has("start") || !m.has("end") || end <= start) null
+    else Marca(start, end, m.str("label").ifEmpty { "Saltar intro" })
+}
+
+fun parseDubs(o: JSONObject) = o.optJSONArray("dubs").list { d -> d.str("lang").ifEmpty { null }?.let { Doblaje(it, d.str("name").ifEmpty { it }) } }
 
 fun parseMusic(o: JSONObject): Music {
     val tracks = LinkedHashMap<String, Song>()

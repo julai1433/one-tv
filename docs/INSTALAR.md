@@ -253,11 +253,13 @@ dirección exacta la muestra `./cine estado`). Si tu TV o su aparato trae navega
 
 ## Parte 4. Tus películas y series
 
-> **¿Tu biblioteca ya la usa Plex, Jellyfin u otro programa (por ejemplo en un NAS)?** Por ahora no le des esa carpeta
-> a One TV: One TV acomoda (mueve y renombra) los videos que encuentra sueltos en su carpeta, y eso puede desordenar la
-> de otro programa. Ya viene una versión que la usa solo para leer, sin tocar nada.
+> **¿Tu biblioteca ya la usa Plex, Jellyfin u otro programa (por ejemplo en un NAS)?** Dásela a One TV sin miedo: una
+> carpeta que ya trae videos acomodados de otra forma (o en la que One TV no puede escribir) se usa **solo para leer**.
+> One TV no mueve, no renombra ni escribe nada ahí; los subtítulos que bajes para esos videos quedan en sus datos.
+> `./cine configurar` lo pregunta («¿Otro programa, como Plex, usa esta carpeta?»). Pasos y qué se ve y qué no:
+> [GUIA-RAPIDA.md](GUIA-RAPIDA.md#ya-tengo-mi-biblioteca-en-un-nas-y-uso-plex).
 
-**En la carpeta de la biblioteca** (la del [primer arranque](#paso-3-primer-arranque); la lista de carpetas está en `config.json` → `carpetas`)
+**En la carpeta de One TV** (la del [primer arranque](#paso-3-primer-arranque); la lista de carpetas está en `config.json` → `carpetas`)
 puedes soltar los archivos de video tal cual: el programa los identifica (por internet, con IMDb y TVmaze, sin
 cuenta) y **los ordena solo**. Con esta forma:
 
@@ -455,7 +457,8 @@ admite comentarios, así que aquí se explica cada campo; el archivo `config.exa
 
 | Campo | Para qué |
 |---|---|
-| `carpetas` | Lista de carpetas donde buscar videos. El organizador acomoda lo nuevo dentro de cada una. |
+| `carpetas` | Lista de carpetas donde buscar videos. El organizador acomoda lo nuevo dentro de las que son de One TV (nuevas, vacías o ya ordenadas por One TV); las demás solo se leen. Lo que termina de bajarse va a la primera de One TV. |
+| `solo_leer` | Opcional. Qué carpetas de `carpetas` son de otro programa (Plex, Jellyfin…): `{"/Volumes/video": true}` = One TV solo la lee, sin mover ni cambiar nada; `false` = One TV la ordena aunque ya tenga videos acomodados de otra forma. Sin esto, One TV lo decide solo (ver [GUIA-RAPIDA.md](GUIA-RAPIDA.md)); `./cine configurar` lo pregunta. Una carpeta en la que no se puede escribir siempre se usa solo para leer. |
 | `puerto` | Número de «puerta» del servidor. Déjalo en 8765 salvo que otro programa lo use. |
 | `roku_ip` | Vacío = la computadora busca el Roku sola. Si falla, pon su IP entre comillas (`"192.168.1.50"`). |
 | `roku_password` | Contraseña del modo desarrollador del Roku ([paso 6](#paso-6-activar-el-modo-desarrollador-del-roku)). |

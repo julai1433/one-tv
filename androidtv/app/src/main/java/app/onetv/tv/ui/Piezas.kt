@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -66,11 +69,12 @@ fun BarraAvance(f: Float, modifier: Modifier, alto: Int = 6) {
     }
 }
 
-/** Duración de un video de YouTube sobre la miniatura (abajo a la derecha). */
+/** Duración de un video de YouTube sobre la miniatura (abajo a la derecha); en vivo, «EN VIVO» en rojo. */
 @Composable
-fun Duracion(seconds: Int, modifier: Modifier) {
-    Box(modifier.clip(RoundedCornerShape(2.u)).background(C.badge).padding(horizontal = 8.u, vertical = 3.u)) {
-        Texto(fmtClock(seconds.toDouble()), font(27, Face.BOLD))
+fun Duracion(seconds: Int, modifier: Modifier, live: Boolean = false) {
+    Box(modifier.height(40.u).clip(RoundedCornerShape(2.u)).background(if (live) C.ytRed else C.badge).padding(horizontal = 10.u),
+        contentAlignment = Alignment.Center) {
+        Texto(if (live) "EN VIVO" else fmtClock(seconds.toDouble()), font(27, Face.BOLD))
     }
 }
 
@@ -84,18 +88,30 @@ fun TarjetaUI(t: Tarjeta, forma: Forma, foco: Boolean, atenuar: Boolean) {
     val alpha by animateFloatAsState(if (atenuar && !foco) 0.55f else 1f, tween(120), label = "reflector")
     val w = forma.w
     val h = forma.h
+    if (t.estilo == Estilo.AJUSTE) {
+        AjusteUI(t, foco, Modifier.alpha(alpha))
+        return
+    }
     if (t.estilo == Estilo.CANAL) {
         Column(Modifier.width(w.u).alpha(alpha), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                Modifier.size(w.u).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(C.raise3)
-                    .then(if (foco) Modifier.border(5.u, C.lime, CircleShape) else Modifier),
-                contentAlignment = Alignment.Center,
-            ) {
-                Texto(t.initials, font(48, Face.DISPLAY, C.textSoft))
-                ImagenRed(t.image, Modifier.fillMaxSize().clip(CircleShape), maxLado = 256)
-                if (foco) Box(Modifier.fillMaxSize().border(5.u, C.lime, CircleShape))
+            Box(Modifier.size(w.u).graphicsLayer { scaleX = scale; scaleY = scale }) {
+                Box(
+                    Modifier.fillMaxSize().clip(CircleShape).background(C.raise3),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Texto(t.initials, font(48, Face.DISPLAY, C.text))
+                    ImagenRed(t.image, Modifier.fillMaxSize().clip(CircleShape), maxLado = 256)
+                    if (foco) Box(Modifier.fillMaxSize().border(5.u, C.lime, CircleShape))
+                }
+                // Anclado: el punto limón (con borde negro) a 45° arriba a la derecha, con la chincheta.
+                if (t.pinned) Box(
+                    Modifier.offset((w * 0.854f - 25).toInt().u, (w * 0.146f - 25).toInt().u).size(50.u).clip(CircleShape).background(C.bg)
+                        .padding(4.u).clip(CircleShape).background(C.lime),
+                    contentAlignment = Alignment.Center,
+                ) { Icono("pin", C.onLime, Modifier.size(24.u)) }
             }
-            Texto(t.title, font(24, color = if (foco) C.lime else C.textSoft), Modifier.padding(top = 12.u), align = TextAlign.Center)
+            Texto(t.title, font(24, color = if (foco) C.text else C.textSoft), Modifier.padding(top = 12.u).width((w + 24).u),
+                maxLines = 3, align = TextAlign.Center)
         }
         return
     }
@@ -119,8 +135,8 @@ fun TarjetaUI(t: Tarjeta, forma: Forma, foco: Boolean, atenuar: Boolean) {
                 }
             }
             if (t.spanish) EtiquetaEspanol(Modifier.padding(12.u))
-            if (t.dur > 0) Duracion(t.dur, Modifier.align(if (t.estilo == Estilo.YTCARD) Alignment.TopEnd else Alignment.BottomEnd)
-                .padding(bottom = if (t.progress > 0) 16.u else 10.u, end = 10.u, top = 10.u))
+            if (t.dur > 0 || t.liveTag) Duracion(t.dur, Modifier.align(if (t.estilo == Estilo.YTCARD) Alignment.TopEnd else Alignment.BottomEnd)
+                .padding(bottom = if (t.progress > 0) 16.u else 10.u, end = 10.u, top = 10.u), live = t.liveTag)
             if (t.progress > 0) BarraAvance(t.progress, Modifier.align(Alignment.BottomStart).fillMaxWidth())
             if (foco) Box(Modifier.fillMaxSize().border(5.u, C.lime, RoundedCornerShape(2.u)))
         }
@@ -131,11 +147,17 @@ fun TarjetaUI(t: Tarjeta, forma: Forma, foco: Boolean, atenuar: Boolean) {
     }
 }
 
-/** Botón: principal en limón (uno por pantalla), secundario con contorno; con el foco, relleno limón y letra negra. */
+/** Botón: principal en limón (uno por pantalla), secundario con contorno; peligroso en letra guinda claro; con el foco,
+ *  relleno limón y letra negra. */
 @Composable
 fun BotonUI(b: Boton, foco: Boolean, principal: Boolean = false, alto: Int = 64, letra: Int = 32, fondo: Color? = null) {
     val shape = RoundedCornerShape(2.u)
-    val color = if (foco) C.onLime else C.text
+    val color = when {
+        foco -> C.onLime
+        principal && fondo == null -> C.lime
+        b.danger -> C.guindaLight
+        else -> C.text
+    }
     val base = Modifier.height(alto.u).clip(shape)
     val m = when {
         foco -> base.background(C.lime)
@@ -170,13 +192,13 @@ fun Segmento(b: Boton, foco: Boolean, elegido: Boolean) {
 @Composable
 fun VacioUI(v: Vacio, forma: Forma, foco: Boolean, grande: Boolean = false, ancho: Int = 1752) {
     val slotW = forma.w
-    val h = forma.h
-    Box(Modifier.width(ancho.u).height(h.u)) {
+    val h = forma.slotH   // el alto de la fila (como EmptyState del Roku): caben la frase, la causa y la acción
+    Box(Modifier.width(ancho.u).height(h.u), contentAlignment = Alignment.CenterStart) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(forma.gap.u)) {
             var x = 0
             while (x + slotW <= ancho) {
                 val shape = if (forma == Forma.CANAL) CircleShape else RoundedCornerShape(2.u)
-                Box(Modifier.size(slotW.u, h.u).alpha(if (x < 760) 0f else 1f).border(2.u, C.edge, shape))
+                Box(Modifier.size(slotW.u, forma.h.u).alpha(if (x < 760) 0f else 1f).border(2.u, C.edge, shape))
                 x += slotW + forma.gap
             }
         }
@@ -195,5 +217,59 @@ fun VacioUI(v: Vacio, forma: Forma, foco: Boolean, grande: Boolean = false, anch
             }
         }
         if (foco && v.action.isEmpty()) Box(Modifier.offset((-12).u, (-12).u).size((ancho + 24).u, (h + 24).u).border(2.u, C.lime))
+    }
+}
+
+/**
+ * Ajuste general (Fila de reproducción): el título y debajo dos segmentos (la opción elegida en relleno limón; con el
+ * foco, el control entero con contorno limón) o un botón secundario (con el foco, relleno limón).
+ */
+@Composable
+fun AjusteUI(t: Tarjeta, foco: Boolean, modifier: Modifier = Modifier) {
+    val a = t.ajuste ?: return
+    val shape = RoundedCornerShape(2.u)
+    Column(modifier.width(840.u).height(150.u)) {
+        Texto(t.title, font(32, Face.BOLD))
+        Spacer(Modifier.height(18.u))
+        Row {
+            if (a.segmentos.isNotEmpty()) a.segmentos.forEachIndexed { i, label ->
+                val lit = i == a.elegido
+                val m = Modifier.height(64.u).offset((-3 * i).u, 0.u).clip(shape)
+                Box(
+                    (if (lit) m.background(C.lime) else m.border(2.u, if (foco) C.lime else C.edge, shape)).padding(horizontal = 28.u),
+                    contentAlignment = Alignment.Center,
+                ) { Texto(label, font(32, Face.BOLD, if (lit) C.onLime else C.text)) }
+            } else {
+                val m = Modifier.height(64.u).clip(shape)
+                Row(
+                    (if (foco) m.background(C.lime) else m.border(2.u, C.edge, shape)).padding(start = 24.u, end = 28.u),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (a.icon.isNotEmpty()) Icono(a.icon, if (foco) C.onLime else C.text, Modifier.padding(end = 12.u).size(36.u))
+                    Texto(a.boton, font(32, Face.BOLD, if (foco) C.onLime else C.text))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Una fila de botones que, si no cabe en maxAncho, se corre lo mínimo para que el botón con el foco se vea entero (como
+ * ButtonRow del Roku).
+ */
+@Composable
+fun FilaBotones(botones: List<Boton>, foco: Int, modifier: Modifier = Modifier, principal: Boolean = true, maxAncho: Int = 1700,
+                alto: Int = 64, letra: Int = 32) {
+    val scroll = androidx.compose.foundation.rememberScrollState()
+    val posiciones = androidx.compose.runtime.remember(botones) { HashMap<Int, Pair<Int, Int>>() }
+    androidx.compose.runtime.LaunchedEffect(foco, botones) {
+        val (x, w) = posiciones[foco] ?: return@LaunchedEffect
+        val view = scroll.viewportSize
+        if (x < scroll.value) scroll.scrollTo(x) else if (x + w > scroll.value + view) scroll.scrollTo(x + w - view)
+    }
+    Row(modifier.width(maxAncho.u).horizontalScroll(scroll, enabled = false), horizontalArrangement = Arrangement.spacedBy(16.u)) {
+        botones.forEachIndexed { i, b ->
+            Box(Modifier.onGloballyPositioned { c -> posiciones[i] = c.positionInParent().x.toInt() to c.size.width }) { BotonUI(b, i == foco, principal = principal && i == 0, alto = alto, letra = letra) }
+        }
     }
 }

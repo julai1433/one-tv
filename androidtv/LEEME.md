@@ -4,21 +4,34 @@ La app de la TV de One TV para televisores y aparatos con Android: Google TV (Ch
 TV), Android TV y Fire TV. Se ve y se maneja **igual que la del Roku** (`roku/`): mismas secciones, colores, letras,
 textos y teclas del control.
 
-## Qué hace (fase 1)
+## Qué hace
 
 - **Se conecta sola**: al abrirla busca la computadora con One TV en la red de la casa y la recuerda. Si la
   computadora cambia de dirección o la TV cambia de Wi-Fi, la vuelve a buscar sola. Si no la encuentra, deja buscar
   otra vez o escribir la dirección con el control.
-- **Inicio, En español, Películas, Series, YouTube, Música y Fila de reproducción**, con el menú lateral, las filas
-  de pósters, la ficha («Continuar desde…», «A continuación», «Al final de la fila», «Idioma») y la página de cada
-  serie con sus temporadas.
+- **Buscar, Inicio, En español, Películas, Series, YouTube, Música, En vivo y Fila de reproducción**, con el menú
+  lateral, las filas de pósters, la ficha («Continuar desde…», «A continuación», «Al final de la fila» y el panel
+  «Idioma» con audio y subtítulos en dos columnas y «Buscar subtítulos en internet») y la página de cada serie.
+- **Buscar** con el teclado de la TV (y el micrófono del control, si tiene): en la biblioteca mientras se escribe y,
+  con un botón, en YouTube («Solo en vivo» y «Cargar más resultados»).
+- **OK sostenido** hace lo de la tecla ✱ del Roku (en Fire TV también la tecla ☰): las opciones de una tarjeta (verla,
+  a la fila, a una lista o a Favoritos, «No me interesa», «Silenciar canal»), mover o quitar un video de la fila, y en
+  la ficha la sinopsis completa con los detalles técnicos.
 - **Reproductor** con las teclas del Roku: OK pausa; ▼ muestra la barra y otro ▼ abre el panel; ▲ regresa; ◀ ▶ la
   primera vez muestran la barra y después mueven la posición (por capítulos en YouTube); ⏪ ⏩ 15 segundos; Atrás
   oculta lo de encima y luego sale. El panel tiene «Siguiente de la fila», «Audio y subtítulos», la fila y lo visto
   hace poco. Sigue donde te quedaste y avisa a la computadora por dónde va (igual que el Roku), así funcionan
-  «Seguir viendo» y la barra «En la TV» de la web. Al terminar un episodio, cuenta atrás para el siguiente.
-- **YouTube** (las filas de la app del Roku; se reproduce con capítulos) y **Música** (tus listas, lo agregado hace
-  poco, artistas y álbumes; la página del álbum; escuchar con la portada y lo que sigue).
+  «Seguir viendo» y la barra «En la TV» de la web. Al terminar un episodio, cuenta atrás para el siguiente. Ofrece
+  **Saltar intro** (las marcas de la computadora), dice el nombre de cada capítulo de YouTube al empezar, salta con
+  aviso un video de YouTube que ya no existe y da por terminado lo que se queda a décimas del final.
+- **YouTube** como en el Roku: las filas, la página de cada canal (Anclar, Silenciar canal y Volver a mostrar) y de
+  cada lista (Reproducir todo, A la fila), la ficha de un video (Favorito, Agregar a lista, Compartir con código QR,
+  No me interesa, Silenciar canal), el audio original siempre y el doblaje solo si se pide («Audio y subtítulos»), y
+  «Cómo traer tu YouTube» cuando la computadora todavía no tiene tu cuenta.
+- **Música** (tus listas, lo agregado hace poco, artistas y álbumes; la página del álbum; escuchar con la portada y lo
+  que sigue) y **En vivo** (los canales que agregas en la web).
+- **Ajustes generales** en la Fila de reproducción: «Al terminar la fila», «Mostrar el nombre del capítulo», los
+  canales silenciados y buscar películas y series nuevas.
 - **La computadora la maneja como al Roku** (`control/Ordenes.kt`): mientras la app está a la vista deja una consulta
   esperando en el servidor (`GET /api/tv/ordenes?device_id=…&nombre=…`, hasta 25 s; `mac/teles.py`) y hace lo que le
   mandan con lo que ya tiene: ver algo (película, capítulo, YouTube, música, En vivo), pausa o sigue, ir a un segundo,
@@ -96,9 +109,7 @@ servidor de prueba la maneja («Ver en la TV», la barra «En la TV»), o a mano
 
 ## Lo que falta
 
-- Buscar (con el teclado de la TV), En vivo, los ajustes generales, las listas y canales de YouTube, «Saltar intro»,
-  el doblaje de YouTube, guardar sin conexión y las opciones con la tecla `*`.
-- «Varios a la vez» desde la web (hoy solo en el Roku). La computadora no puede abrir la app sola (al Roku sí): las
-  órdenes llegan solo con One TV abierta.
+- Guardar sin conexión (la fila «Guardados» y su botón en la ficha) y «varios a la vez» (archivado también en el Roku).
+- La computadora no puede abrir la app sola (al Roku sí): las órdenes llegan solo con One TV abierta.
 - Probar la instalación con Downloader en TV de verdad (Google TV, Fire TV) y la versión firmada de GitHub.
 - Lectores de pantalla: hoy las teclas las maneja la app (como el Roku) y no se anuncian.

@@ -153,3 +153,34 @@ fun agoText(epoch: Long, now: Long = System.currentTimeMillis() / 1000): String 
     }
     return if (n == 1L) "hace 1 $one" else "hace $n $many"
 }
+
+/** «5,2 mil viendo», «830 viendo»; "" si no se sabe. */
+fun viewersText(n: Int): String {
+    if (n <= 0) return ""
+    if (n < 1000) return "$n viendo"
+    val tenths = n / 100
+    var text = (tenths / 10).toString()
+    if (tenths % 10 != 0 && n < 100000) text += "," + (tenths % 10)
+    return "$text mil viendo"
+}
+
+/** «12 sep 2023», en la hora de la TV. */
+fun dateText(epoch: Long, zone: java.util.TimeZone = java.util.TimeZone.getDefault()): String {
+    val c = java.util.Calendar.getInstance(zone)
+    c.timeInMillis = epoch * 1000
+    val months = listOf("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+    return "${c.get(java.util.Calendar.DAY_OF_MONTH)} ${months[c.get(java.util.Calendar.MONTH)]} ${c.get(java.util.Calendar.YEAR)}"
+}
+
+/** Para la ficha: «Publicado el 12 sep 2023» si se sabe exacta, «Publicado hace 3 años» si es aproximada, "" si no. */
+fun publishedText(epoch: Long, approx: Boolean, now: Long = System.currentTimeMillis() / 1000): String {
+    if (epoch <= 0) return ""
+    return if (approx) "Publicado " + agoText(epoch, now) else "Publicado el " + dateText(epoch)
+}
+
+/** Texto para buscar: minúsculas y sin acentos («Él» → «el»). */
+fun plainText(text: String): String {
+    var t = text.lowercase(Locale.forLanguageTag("es"))
+    for ((a, b) in listOf("á" to "a", "é" to "e", "í" to "i", "ó" to "o", "ú" to "u", "ü" to "u", "ñ" to "n")) t = t.replace(a, b)
+    return t
+}
