@@ -198,6 +198,14 @@ class AlDetener(unittest.TestCase):
         self.src = generar(self.dir / "largo.mkv", 120)
 
     def tearDown(self):
+        # En Windows un archivo que ffmpeg acaba de soltar (su registro) puede seguir ocupado un momento (el antivirus
+        # lo revisa): se reintenta antes de darse por vencido.
+        for _ in range(20):
+            try:
+                self.tmp.cleanup()
+                return
+            except PermissionError:
+                time.sleep(0.25)
         self.tmp.cleanup()
 
     def test_no_queda_un_trozo_cortado(self):

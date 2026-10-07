@@ -227,7 +227,8 @@ class SubtitleAligner:
         text = to_srt(apply(read(sub_file), fix))
         out.parent.mkdir(parents=True, exist_ok=True)
         tmp = out.with_name(out.name + ".tmp")
-        tmp.write_text(text, encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:   # \n también en Windows (igual en todos lados)
+            f.write(text)
         tmp.replace(out)
 
     def notify(self):

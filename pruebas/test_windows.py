@@ -527,12 +527,15 @@ class Archivos(unittest.TestCase):
         lista, nueva, trozo = d / "index.m3u8", d / "index.m3u8.tmp", d / "seg1.ts"
         lista.write_bytes(b"#EXTM3U\nvieja\n")
         trozo.write_bytes(b"x" * 1000)
-        with hostos.open_shared(lista) as f, hostos.open_shared(trozo) as g:
-            nueva.write_bytes(b"#EXTM3U\nnueva\n")
-            os.replace(nueva, lista)   # lo que hace ffmpeg con su lista cada pocos segundos
-            trozo.unlink()             # lo que hace transcode con los trozos ya vistos
-            self.assertEqual(f.read(), b"#EXTM3U\nvieja\n")   # lo que se estaba mandando sigue entero
-            self.assertEqual(len(g.read()), 1000)
+        with hostos.open_shared(trozo) as g:
+            trozo.unlink()             # lo que hace transcode con los trozos ya vistos, aunque se estén mandando
+            self.assertEqual(len(g.read()), 1000)   # lo que se estaba mandando sigue entero
+        # La lista de ffmpeg se reemplaza cada pocos segundos. Windows no deja reemplazar por nombre un archivo abierto
+        # (aunque se comparta), así que el servidor la lee entera y la suelta al instante (read_shared): después de
+        # leerla, ffmpeg puede reemplazarla.
+        self.assertEqual(hostos.read_shared(lista), b"#EXTM3U\nvieja\n")
+        nueva.write_bytes(b"#EXTM3U\nnueva\n")
+        os.replace(nueva, lista)
         self.assertEqual(hostos.read_shared(lista), b"#EXTM3U\nnueva\n")
         with self.assertRaises(FileNotFoundError):
             hostos.open_shared(d / "no-existe.ts")
