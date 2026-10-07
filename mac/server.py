@@ -4,6 +4,7 @@ portadas y subtítulos al Roku, y la página web para mandar cosas a la tele."""
 import json
 import re
 import shutil
+import socketserver
 import subprocess
 import sys
 import threading
@@ -702,6 +703,14 @@ def _bool(v):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
+
+    def server_bind(self):
+        # Lo mismo que HTTPServer, pero sin preguntarle a la red el nombre de esta computadora (socket.getfqdn): en
+        # algunas redes (un NAS, una máquina de pruebas) esa pregunta tarda minutos y el servidor no arranca.
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
 
     def handle_error(self, request, client_address):
         # Navegadores y el Roku cierran conexiones todo el tiempo: no es un error.
