@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pantalla principal: menú lateral, las secciones (filas, cuadrículas, buscar), las páginas que se abren
+     encima (una serie, un canal, una lista), la ficha y el reproductor. La lógica está repartida en
+     MainScene.brs (navegación y órdenes de la Mac), Catalog.brs (lo que muestra cada sección),
+     YouTube.brs (sección YouTube, canales y listas), Playback.brs (ficha, reproducir, fila, lo siguiente) y
+     Multi.brs (varios a la vez desde la TV) y Offline.brs (guardar sin conexión). -->
+<component name="MainScene" extends="Scene">
+  <interface>
+    <field id="launchArgs" type="assocarray" onChange="onLaunchArgs" />
+    <field id="inputArgs" type="assocarray" alwaysNotify="true" onChange="onInputArgs" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Catalog.brs" />
+  <script type="text/brightscript" uri="pkg:/components/YouTube.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Playback.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Multi.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Offline.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Lists.brs" />
+  <script type="text/brightscript" uri="pkg:/components/PlayerMenus.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Music.brs" />
+  <children>
+    <Rectangle id="bg" width="1920" height="1080" />
+    <ContentRows id="rows" visible="false" />
+    <PosterGrid id="grid" visible="false" />
+    <SearchView id="search" visible="false" />
+    <ContentRows id="pageRows" visible="false" />
+    <PosterGrid id="pageGrid" visible="false" />
+    <!-- Sin la Mac: la forma de Inicio con huecos, qué pasa, qué revisar y «Buscar ahora». -->
+    <EmptyState id="offline" translation="[168, 250]" visible="false" />
+    <!-- Aviso breve abajo (actualizando, errores al reproducir). -->
+    <Group id="toast" visible="false" translation="[168, 976]">
+      <Rectangle id="toastBg" height="72" />
+      <Label id="toastText" translation="[28, 0]" height="72" vertAlign="center" />
+    </Group>
+    <SideMenu id="menu" />
+    <!-- Cómo traer las suscripciones y listas de YouTube (Google Takeout): lo abre la acción de un vacío. -->
+    <Group id="help" visible="false">
+      <Rectangle id="helpBg" width="1920" height="1080" />
+      <Label id="helpTitle" translation="[168, 72]" text="CÓMO TRAER TU YOUTUBE" />
+      <Label id="helpIntro" translation="[168, 190]" width="1116" wrap="true" maxLines="2" />
+      <Group id="helpSteps" translation="[168, 320]" />
+      <Poster id="helpQr" uri="pkg:/images/qr_takeout.png" translation="[1356, 320]" width="396" height="396" loadDisplayMode="noScale" />
+      <Label id="helpQrUrl" translation="[1356, 736]" width="396" horizAlign="center" text="takeout.google.com" />
+      <Label id="helpQrNote" translation="[1356, 786]" width="396" horizAlign="center" text="Escanéalo con tu teléfono" />
+      <Label id="helpHint" translation="[168, 990]" text="Atrás: volver" />
+    </Group>
+    <DetailView id="detail" visible="false" />
+    <Player id="player" visible="false" />
+    <!-- Varios a la vez: un solo video que armó la computadora; las flechas cambian cuál suena. -->
+    <Mosaic id="mosaic" visible="false" />
+    <!-- «Ver con otro», «Agregar», «Cambiar por»: la lista para elegir, encima de todo (Multi.brs). -->
+    <MultiPicker id="picker" visible="false" />
+    <Timer id="retryTimer" duration="5" repeat="false" />
+    <Timer id="toastTimer" duration="7" repeat="false" />
+    <!-- «Ocultar canal» pide un segundo OK: pasado este tiempo, el botón vuelve a su texto. -->
+    <Timer id="confirmTimer" duration="6" repeat="false" />
+    <!-- Guardar sin conexión: el segundo OK para quitar un guardado, y la lectura de lo guardado cada 3 s mientras importa. -->
+    <Timer id="offConfirmTimer" duration="6" repeat="false" />
+    <Timer id="offTimer" duration="3" repeat="true" />
+  </children>
+</component>

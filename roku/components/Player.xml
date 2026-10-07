@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reproductor: el video, los reportes de avance a la computadora cada 10 s, el aviso para saltar la intro de una
+     serie, los capítulos de YouTube (su nombre unos segundos al empezar cada uno) y la cuenta atrás de lo siguiente.
+     Las teclas son de la app (el Roku no maneja las suyas: enableTrickPlay = false), con su propia barra de avance
+     (decidido el 6 oct 2026):
+       ▼ la barra de avance; otra vez ▼, el panel (botones, la fila y lo visto) · ▲ del panel a la barra; otra vez ▲,
+       solo el video · ◀ ▶ la primera vez muestran la barra, después mueven la posición · OK y ⏯ pausa o sigue
+       · ⏪ ⏩ −15 s / +15 s · Atrás: oculta lo que haya encima; sin nada encima, sale.
+     La barra y el panel se ocultan solos a los pocos segundos si el video sigue; en pausa se quedan.
+     Mientras el aviso de la intro está en pantalla, el OK lo salta. -->
+<component name="Player" extends="Group">
+  <interface>
+    <field id="server" type="string" />
+    <field id="deviceId" type="string" />
+    <field id="request" type="assocarray" onChange="onRequest" />      <!-- qué reproducir (lo arma la escena) -->
+    <field id="subtitle" type="string" onChange="onSubtitle" />        <!-- subtítulos elegidos ("" = sin) -->
+    <field id="audioTrack" type="integer" onChange="onAudioTrack" />   <!-- pista de un archivo directo -->
+    <field id="trackInfo" type="assocarray" />                         <!-- {audio, sub} para los reportes -->
+    <field id="seekTo" type="float" alwaysNotify="true" onChange="onSeekTo" />
+    <field id="stop" type="boolean" alwaysNotify="true" onChange="onStop" />
+    <field id="upNext" type="assocarray" onChange="onUpNext" />        <!-- {title, thumb, source} -->
+    <field id="position" type="float" />
+    <field id="covered" type="boolean" onChange="onCovered" />   <!-- la lista de «Ver con otro» está encima -->
+    <!-- {head, text, autoHide}: nota arriba a la izquierda mientras la computadora arma «varios a la vez» (el video
+         sigue); {} la quita. autoHide: se va sola en 8 s (un error). -->
+    <field id="note" type="assocarray" onChange="onNote" />
+    <field id="refocus" type="boolean" alwaysNotify="true" onChange="onRefocus" />   <!-- se cerró la lista: el foco vuelve -->
+    <!-- {queue, history, tracks, songPrev, songNext}: lo que muestra el panel (la escena lo manda cuando el reproductor
+         pide «panel»); tracks: si hay audio o subtítulos para elegir; songPrev/songNext: escuchando música -->
+    <field id="panelData" type="assocarray" onChange="onPanelData" />
+    <!-- {type: stopped|finished|error|upnext-play|upnext-cancel|queue|options|panel|panel-queue|panel-history|panel-next|saved} -->
+    <field id="event" type="assocarray" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Player.brs" />
+  <children>
+    <Video id="video" width="1920" height="1080" />
+
+    <!-- Escuchando música: la portada grande, la canción, el artista, el álbum y lo que sigue (la barra de abajo se queda). -->
+    <Group id="musicView" visible="false">
+      <Rectangle id="musicBg" width="1920" height="1080" />
+      <Poster id="musicArt" translation="[110, 150]" width="560" height="560" loadWidth="560" loadHeight="560" loadDisplayMode="scaleToZoom" />
+      <Label id="musicKicker" translation="[740, 190]" width="1070" />
+      <Label id="musicTitle" translation="[740, 236]" width="1070" wrap="true" maxLines="2" />
+      <Label id="musicArtist" translation="[740, 420]" width="1070" />
+      <Label id="musicAlbum" translation="[740, 474]" width="1070" />
+      <Label id="musicNext" translation="[740, 620]" width="1070" />
+    </Group>
+
+    <!-- Aviso para saltar (DESIGN.md, pieza 8): abajo a la derecha, panel negro al 92 % con borde limón, la tecla
+         OK dibujada, el texto en letra de marquesina y la línea limón de abajo que se vacía en 8 s. -->
+    <Group id="notice" visible="false">
+      <Poster id="noticeShadow" uri="pkg:/images/shadow.9.png" />
+      <Rectangle id="noticeBg" />
+      <Poster id="noticeEdge" uri="pkg:/images/frame.9.png" />
+      <Poster id="okEdge" uri="pkg:/images/line.9.png" />
+      <Label id="okText" text="OK" horizAlign="center" vertAlign="center" />
+      <Poster id="noticeIcon" width="40" height="40" />
+      <Label id="noticeText" vertAlign="center" />
+      <Rectangle id="drain" height="6" />
+    </Group>
+
+    <!-- Capítulo de YouTube que empieza: su nombre unos segundos, abajo a la izquierda. Solo informa (no se
+         elige ni usa el OK; el OK hace lo de siempre en el video). -->
+    <Group id="chapterNote" visible="false">
+      <Rectangle id="chapterNoteBg" />
+      <Label id="chapterNoteHead" />
+      <Label id="chapterNoteTitle" />
+    </Group>
+
+    <!-- La barra de avance de la app (en pausa, al saltar de capítulo o al adelantar): el título, el capítulo, el
+         tiempo y la barra con las marcas de los capítulos. -->
+    <Group id="osd" visible="false">
+      <Poster id="osdShade" uri="pkg:/images/fade_bottom.png" translation="[0, 640]" width="1920" height="440" />
+      <Label id="osdTitle" translation="[110, 826]" width="1300" />
+      <Label id="osdChapter" translation="[110, 880]" width="1300" />
+      <Label id="osdTime" translation="[1410, 880]" width="400" horizAlign="right" />
+      <!-- El ícono de play o pausa junto a la barra (OK o ⏯ lo cambian). -->
+      <Poster id="osdPlay" translation="[110, 925]" width="40" height="40" />
+      <Rectangle id="osdTrack" translation="[174, 940]" width="1636" height="10" />
+      <Rectangle id="osdFill" translation="[174, 940]" width="0" height="10" />
+      <Group id="osdTicks" translation="[174, 940]" />
+      <Poster id="osdKnob" uri="pkg:/images/circle.png" width="28" height="28" />
+      <Label id="osdHint" translation="[110, 972]" width="1700" />
+    </Group>
+    <Timer id="osdTimer" duration="5" repeat="false" />
+    <Timer id="panelTimer" duration="8" repeat="false" />
+    <Timer id="seekTimer" duration="0.5" repeat="false" />
+
+    <!-- Archivado («varios a la vez»): se dejó el grupo para no tocar el resto. -->
+    <Group id="multiHint" visible="false" />
+
+    <!-- Varios a la vez desde aquí: lo que se veía sigue mientras la computadora arma el mosaico (Mosaic, build en
+         segundo plano). Arriba a la izquierda, lejos de la barra y de los avisos de abajo. -->
+    <Group id="buildNote" visible="false" translation="[110, 110]">
+      <Rectangle id="buildNoteBg" />
+      <Label id="buildNoteHead" translation="[32, 22]" />
+      <Label id="buildNoteText" translation="[32, 58]" />
+    </Group>
+    <Timer id="buildNoteTimer" duration="8" repeat="false" />
+
+    <!-- Al terminar: cuenta atrás y sigue lo de la fila, el siguiente episodio o un recomendado de YouTube. -->
+    <Label id="statusNote" translation="[0, 500]" width="1920" horizAlign="center" visible="false" />
+    <Group id="upNextGroup" visible="false">
+      <Rectangle id="upNextBg" width="1920" height="1080" />
+      <Rectangle id="upNextFallback" translation="[110, 270]" width="960" height="540" />
+      <Label id="upNextFallbackTitle" translation="[146, 306]" width="888" height="468" wrap="true" maxLines="3"
+             vertAlign="bottom" />
+      <Poster id="upNextPoster" translation="[110, 270]" width="960" height="540" loadDisplayMode="scaleToZoom" />
+      <!-- Si se saltó un video (ya no está en YouTube): el motivo, en guinda claro, arriba de lo siguiente. -->
+      <Label id="upNextNote" translation="[1130, 150]" width="690" wrap="true" maxLines="3" visible="false" />
+      <Label id="upNextWhat" translation="[1130, 262]" width="700" />
+      <Label id="upNextTitle" translation="[1130, 332]" width="690" wrap="true" maxLines="3" />
+      <Label id="upNextCount" translation="[1124, 478]" />
+      <Label id="upNextUnit" />
+      <Rectangle id="upNextTrack" translation="[1130, 664]" width="690" height="6" />
+      <Rectangle id="upNextDrain" translation="[1130, 664]" width="690" height="6" />
+      <Group id="upNextKeys" translation="[1130, 716]" />
+    </Group>
+    <Animation id="upNextAnim" duration="5" easeFunction="linear" repeat="false">
+      <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[690.0, 0.0]" fieldToInterp="upNextDrain.width" />
+    </Animation>
+
+    <!-- El panel (▼ con la barra a la vista): encima de todo lo del reproductor. -->
+    <PlayerPanel id="panel" visible="false" />
+
+    <Timer id="tickTimer" duration="10" repeat="true" />
+    <Timer id="chapterTimer" duration="5" repeat="false" />
+    <Timer id="upNextTimer" duration="1" repeat="true" />
+    <!-- Un video de YouTube que no arranca en este tiempo se da por perdido (la TV reintentaría por minutos). -->
+    <Timer id="stallTimer" duration="30" repeat="false" />
+  </children>
+</component>

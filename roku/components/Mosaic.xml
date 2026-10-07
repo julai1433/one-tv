@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Varios a la vez. El Roku reproduce un solo video a la vez, así que la computadora arma UNO con todos juntos
+     (lado a lado o en cuadrícula) y el audio de cada uno como pista aparte. Aquí se reproduce ese video, se dibuja
+     el marco limón sobre el que suena y las flechas cambian de pista (el video no se detiene).
+     ◀ ▶: cuál suena. OK: ver ese solo, con el reproductor de siempre. ▼: la tira de abajo (Agregar otro, Cambiar
+     este, Quitar este). Atrás: salir. Lo abre un id que ya armó la computadora (open) o una receta (build) que se le
+     pide aquí mismo; edit agrega o cambia uno con lo que se eligió en la lista de la escena. -->
+<component name="Mosaic" extends="Group">
+  <interface>
+    <field id="server" type="string" />
+    <!-- {id, focus, background?}: el mosaico que armó la computadora. background: lo de ahora (el reproductor) sigue
+         en pantalla hasta que esté listo; entonces sale event ready y la escena manda reveal. -->
+    <field id="open" type="assocarray" onChange="onOpen" />
+    <!-- {sources: [{kind, id, audio?, start?}], focus, background?}: pedir uno nuevo (POST /api/mosaic/start) y
+         abrirlo; con background, como en open (la computadora adelanta los videos lo que tarde: keep). -->
+    <field id="build" type="assocarray" alwaysNotify="true" onChange="onBuild" />
+    <field id="reveal" type="boolean" alwaysNotify="true" onChange="onReveal" />   <!-- ya se puede mostrar el armado detrás -->
+    <!-- {mode: add | change, source}: con lo elegido en la lista, rearmarlo (agrega uno o cambia el que suena) -->
+    <field id="edit" type="assocarray" alwaysNotify="true" onChange="onEdit" />
+    <field id="refocus" type="boolean" alwaysNotify="true" onChange="onRefocus" />   <!-- se cerró la lista -->
+    <field id="stop" type="boolean" alwaysNotify="true" onChange="onStop" />
+    <!-- {type: closed | solo, id, source, at} al salir; {type: pick, mode: add | change, sources, title} para elegir;
+         {type: ready, id} listo el armado detrás; {type: buildError, message} no se pudo armar el de detrás -->
+    <field id="event" type="assocarray" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Mosaic.brs" />
+  <children>
+    <Rectangle id="bg" width="1920" height="1080" />
+    <Video id="video" width="1920" height="1080" enableUI="false" />
+    <!-- Un grupo por video: marco (limón en el que suena) y la etiqueta de arriba a la izquierda. -->
+    <Group id="panes" />
+    <!-- Mientras la computadora arma el video, o si no pudo. -->
+    <Group id="wait" visible="false">
+      <Label id="waitTitle" translation="[168, 420]" width="1584" horizAlign="center" />
+      <Label id="waitText" translation="[168, 540]" width="1584" horizAlign="center" wrap="true" maxLines="3" />
+    </Group>
+    <!-- Teclas: abajo, sobre la franja negra (dos lado a lado) o unos segundos encima del video (cuadrícula). -->
+    <Group id="hint">
+      <Rectangle id="hintBg" width="1920" height="112" translation="[0, 968]" />
+      <Group id="hintKeys" translation="[96, 998]" />
+    </Group>
+    <!-- ▼: la tira de abajo. ◀ ▶ entre botones, OK elige, Atrás o ▲ la cierran. -->
+    <Group id="strip" visible="false">
+      <Rectangle id="stripBg" width="1920" height="112" translation="[0, 968]" />
+      <ButtonRow id="stripButtons" translation="[96, 992]" />
+    </Group>
+    <!-- Armando el siguiente sin quitar este (agregar, cambiar, quitar): arriba a la izquierda. -->
+    <Group id="note" visible="false" translation="[110, 110]">
+      <Rectangle id="noteBg" />
+      <Label id="noteHead" translation="[32, 22]" />
+      <Label id="noteText" translation="[32, 58]" />
+    </Group>
+    <Timer id="pollTimer" duration="1" repeat="true" />
+    <Timer id="behindTimer" duration="1" repeat="true" />
+    <Timer id="noteTimer" duration="8" repeat="false" />
+    <Timer id="hintTimer" duration="6" repeat="false" />
+  </children>
+</component>

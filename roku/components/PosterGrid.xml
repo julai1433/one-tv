@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cuadrícula (Películas, Series, En español, videos de un canal o de una lista, canales ocultos). ⏪/⏩ suben
+     o bajan una pantalla; ▶ sobre una tarjeta la reproduce. Arriba a la derecha, los filtros (segmentos Todas /
+     Con español / Sin español) o los botones de la página (Reproducir todo; Anclar y Ocultar canal). Sin nada que
+     mostrar: un vacío que enseña. -->
+<component name="PosterGrid" extends="Group">
+  <interface>
+    <field id="content" type="node" onChange="onContent" />
+    <field id="header" type="string" onChange="onHeader" />
+    <field id="count" type="string" onChange="onHeader" />             <!-- «62 películas» -->
+    <field id="shape" type="string" value="gridPoster" onChange="onShape" />  <!-- gridPoster | gridVideo -->
+    <field id="controls" type="array" onChange="onControls" />         <!-- [{id, text, icon}] arriba a la derecha -->
+    <field id="controlStyle" type="string" value="segments" />         <!-- segments (filtros) | big (botones) -->
+    <field id="controlPrimary" type="boolean" value="true" />          <!-- big: ¿el primero es el botón principal? -->
+    <field id="controlValue" type="string" onChange="onControlValue" /> <!-- filtro elegido -->
+    <field id="emptySpec" type="assocarray" />                         <!-- {phrase, cause, action, actionId} -->
+    <field id="focusIndex" type="integer" value="0" />                 <!-- tarjeta elegida (entrada y salida) -->
+    <field id="jumpTo" type="integer" value="-1" alwaysNotify="true" onChange="onJump" />
+    <field id="event" type="assocarray" alwaysNotify="true" />         <!-- {type: select|play|control, id, index} -->
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/components/PosterGrid.brs" />
+  <children>
+    <Label id="header" translation="[168, 26]" />
+    <Label id="count" />
+    <ButtonRow id="controls" visible="false" />
+    <Label id="info" translation="[168, 124]" width="1640" />
+    <MarkupGrid
+        id="grid"
+        translation="[168, 184]"
+        itemComponentName="PosterItem"
+        numColumns="8"
+        numRows="3"
+        itemSize="[186, 279]"
+        itemSpacing="[24, 20]"
+        drawFocusFeedback="false"
+        vertFocusAnimationStyle="floatingFocus" />
+    <EmptyState id="empty" translation="[168, 184]" visible="false" />
+  </children>
+</component>

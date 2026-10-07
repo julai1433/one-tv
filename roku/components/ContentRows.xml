@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Filas de tarjetas (Inicio, YouTube, En vivo, Fila de reproducción, página de una serie). Cada fila del
+     contenido dice su forma ("shape": poster, video, frame, channel, setting); una fila vacía ("isEmpty") conserva
+     el alto de su forma y su única tarjeta ocupa todo el ancho. Bajo la fila elegida, una línea con lo que dice
+     la tarjeta ("info"). Arriba, opcionalmente, un botón (Buscar en YouTube). Título de la página en letra de
+     marquesina; títulos de fila en Archivo 700. -->
+<component name="ContentRows" extends="Group">
+  <interface>
+    <field id="content" type="node" onChange="onContent" />
+    <field id="header" type="string" onChange="onHeader" />
+    <field id="topButton" type="string" onChange="onTopButton" />      <!-- texto del botón de arriba o "" -->
+    <field id="focus" type="array" />                                   <!-- [fila, columna] de la tarjeta elegida -->
+    <field id="jumpTo" type="array" onChange="onJump" />                <!-- mover el foco a [fila, columna] -->
+    <field id="event" type="assocarray" alwaysNotify="true" />          <!-- {type: select|play|top|options, id, row, col} -->
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/components/ContentRows.brs" />
+  <children>
+    <Label id="header" translation="[168, 26]" width="1600" />
+    <ButtonRow id="top" translation="[168, 128]" visible="false" />
+    <RowList
+        id="list"
+        translation="[168, 150]"
+        itemComponentName="PosterItem"
+        numRows="4"
+        itemSize="[1752, 320]"
+        rowItemSize="[[213, 320]]"
+        rowItemSpacing="[[24, 0]]"
+        itemSpacing="[0, 120]"
+        showRowLabel="[true]"
+        rowLabelOffset="[[12, 4]]"
+        drawFocusFeedback="false"
+        rowFocusAnimationStyle="floatingFocus"
+        vertFocusAnimationStyle="fixedFocus" />
+    <Label id="info" translation="[168, 500]" width="1640" />
+  </children>
+</component>

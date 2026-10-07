@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Buscar: teclado en pantalla (con micrófono si el control lo tiene) que busca en los títulos de la
+     biblioteca mientras se escribe, y un botón para buscar lo mismo en YouTube. mode="youtube": solo YouTube.
+     El campo es propio (DESIGN.md, pieza 1: sin caja, línea inferior, letra grande, cursor limón). La caja de
+     texto del teclado sigue ahí, tapada por el campo: es la que atiende el dictado por voz. -->
+<component name="SearchView" extends="Group">
+  <interface>
+    <field id="mode" type="string" value="all" onChange="onMode" />     <!-- all | youtube -->
+    <field id="libContent" type="node" onChange="onLibContent" />
+    <field id="ytContent" type="node" alwaysNotify="true" onChange="onYtContent" />
+    <field id="jumpTo" type="integer" alwaysNotify="true" onChange="onJumpTo" />   <!-- poner el foco en ese resultado -->
+    <field id="status" type="string" onChange="onStatus" />
+    <field id="query" type="string" />
+    <field id="focusIndex" type="integer" value="0" />
+    <field id="event" type="assocarray" alwaysNotify="true" />          <!-- {type: query|ytsearch|select|play, …} -->
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/components/SearchView.brs" />
+  <children>
+    <Label id="header" translation="[168, 26]" />
+    <DynamicMiniKeyboard id="keyboard" translation="[168, 150]" />
+    <Group id="field" translation="[168, 144]">
+      <Rectangle id="fieldBg" width="574" height="80" />
+      <Poster id="fieldIcon" uri="pkg:/images/icons/search.png" width="40" height="40" translation="[0, 18]" />
+      <Label id="fieldText" translation="[58, 0]" height="76" vertAlign="center" />
+      <Rectangle id="cursor" width="4" height="48" />
+      <Poster id="micIcon" uri="pkg:/images/icons/mic.png" width="36" height="36" translation="[536, 20]" visible="false" />
+      <Rectangle id="fieldLine" translation="[0, 74]" width="572" height="3" />
+    </Group>
+    <Label id="voiceHint" translation="[168, 900]" width="660" wrap="true" />
+    <ButtonRow id="ytButton" translation="[900, 150]" visible="false" />
+    <Label id="resultsHead" translation="[900, 250]" width="940" />
+    <MarkupGrid id="results" translation="[900, 320]" itemComponentName="PosterItem" numColumns="4" numRows="2"
+                itemSize="[186, 279]" itemSpacing="[24, 24]" drawFocusFeedback="false"
+                vertFocusAnimationStyle="floatingFocus" />
+    <EmptyState id="empty" translation="[900, 320]" visible="false" />
+    <Label id="info" translation="[900, 930]" width="940" wrap="true" maxLines="2" />
+  </children>
+</component>

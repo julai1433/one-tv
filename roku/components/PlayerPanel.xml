@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- El panel del reproductor (▼ con la barra de avance a la vista): sube desde abajo hasta tres cuartas partes de la
+     pantalla con lo que se ve y su barra de avance (solo para ver), los botones y, debajo, la fila de reproducción y
+     lo visto hace poco. El video sigue detrás, oscurecido. ▲ ▼ cambian de parte (▲ desde la de arriba vuelve a la
+     barra), ◀ ▶ se mueven dentro, OK elige, ⏯ pausa o sigue, Atrás lo quita. -->
+<component name="PlayerPanel" extends="Group">
+  <interface>
+    <!-- {title, queue: [{kind, id, title, thumb}], history: [{kind, id, title, thumb, when}], buttons: [{id, text, icon}],
+          chapters: [{start, finish, title}]} -->
+    <field id="data" type="assocarray" onChange="onData" />
+    <!-- {position, duration, paused, chapter}: el reproductor lo manda mientras el panel está abierto -->
+    <field id="status" type="assocarray" onChange="onStatus" />
+    <field id="open" type="boolean" alwaysNotify="true" onChange="onOpen" />
+    <!-- {type: close} | {type: up} | {type: pause} | {type: button, id} | {type: queue, index} | {type: history, index} -->
+    <field id="event" type="assocarray" alwaysNotify="true" />
+    <field id="touched" type="boolean" alwaysNotify="true" />   <!-- se apretó algo: el reproductor no lo oculta aún -->
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/components/PlayerPanel.brs" />
+  <children>
+    <Rectangle id="shade" width="1920" height="1080" />
+    <Group id="sheet" translation="[0, 1080]">
+      <Rectangle id="sheetBg" width="1920" height="810" />
+      <Rectangle id="sheetLine" width="1920" height="2" />
+      <Label id="title" translation="[110, 30]" width="1300" />
+      <Label id="times" translation="[1410, 34]" width="400" horizAlign="right" />
+      <Label id="chapter" translation="[110, 82]" width="1700" />
+      <!-- La barra de avance: el tramo visto en limón, las marcas de los capítulos y, con el foco, el punto. -->
+      <Poster id="barPlay" translation="[110, 125]" width="40" height="40" />
+      <Group id="bar" translation="[174, 138]">
+        <Rectangle id="barTrack" width="1636" height="12" />
+        <Rectangle id="barFill" width="0" height="12" />
+        <Group id="barTicks" />
+        <Poster id="barKnob" uri="pkg:/images/circle.png" width="28" height="28" translation="[-14, -8]" />
+      </Group>
+      <Group id="buttons" translation="[110, 184]" />
+      <Label id="queueHead" translation="[110, 278]" />
+      <Group id="queueRow" translation="[110, 318]" />
+      <Label id="queueEmpty" translation="[110, 326]" width="1700" visible="false" />
+      <Label id="historyHead" translation="[110, 518]" />
+      <Group id="historyRow" translation="[110, 558]" />
+      <Label id="hint" translation="[110, 762]" width="1700" />
+    </Group>
+    <Animation id="slide" duration="0.22" easeFunction="outCubic" repeat="false">
+      <Vector2DFieldInterpolator id="slideInterp" key="[0.0, 1.0]" keyValue="[[0, 1080], [0, 270]]" fieldToInterp="sheet.translation" />
+    </Animation>
+  </children>
+</component>

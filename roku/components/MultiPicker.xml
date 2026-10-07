@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Varios a la vez: lista para elegir qué se ve junto con lo de ahora («VER CON OTRO»), qué se suma al mosaico
+     («AGREGAR») o por cuál se cambia uno («CAMBIAR POR»). Panel a la derecha, encima de todo (lo de atrás sigue
+     corriendo bajo el velo), como el panel de idioma de la ficha. Secciones En vivo, Fila de reproducción y Vistos
+     hace poco; cada renglón con miniatura, título y una línea de apoyo. Lo que ya está en pantalla sale desactivado
+     y el foco lo salta. ▲ ▼ mueven, OK elige, ◀ o Atrás cierran. La escena arma las secciones; aquí solo se dibuja. -->
+<component name="MultiPicker" extends="Group">
+  <interface>
+    <!-- {title, note, hint?, focus?, sections: [{title, entries: [{title, line, thumb, icon, disabled, source}]}]}
+         focus: el renglón que queda señalado (al marcar una lista, la lista se vuelve a mandar y el foco no se mueve);
+         icon: en vez de miniatura, un ícono de pkg:/images/icons (p. ej. «Lista nueva»). También sirve para menús:
+         «Agregar a lista» y lo que se hace con un video de la fila (Lists.brs). -->
+    <field id="spec" type="assocarray" onChange="onSpec" />
+    <field id="event" type="assocarray" alwaysNotify="true" />   <!-- {type: pick, source, title} | {type: close} -->
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/components/MultiPicker.brs" />
+  <children>
+    <Rectangle id="shade" width="1920" height="1080" />
+    <Rectangle id="panel" translation="[820, 0]" width="1100" height="1080" />
+    <Label id="title" translation="[880, 48]" width="992" />
+    <Label id="note" translation="[880, 146]" width="992" wrap="true" maxLines="2" />
+    <!-- Los renglones se corren dentro de esta ventana (lo que sale de ella no se dibuja). -->
+    <Group id="viewport" translation="[868, 252]" clippingRect="[0, 0, 1004, 708]">
+      <Group id="list" />
+    </Group>
+    <EmptyState id="empty" translation="[880, 276]" visible="false" />
+    <Label id="hint" translation="[880, 990]" width="992" />
+  </children>
+</component>

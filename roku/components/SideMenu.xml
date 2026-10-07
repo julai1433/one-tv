@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Menú lateral. Cerrado: solo íconos, el de la sección actual en limón. Abierto (← desde la primera columna):
+     nombres, la opción con el foco en relleno limón y letra negra, la sección actual en limón, el estado de la Mac
+     en palabras y el contenido detrás en penumbra. -->
+<component name="SideMenu" extends="Group">
+  <interface>
+    <field id="selected" type="integer" value="1" onChange="render" />    <!-- sección actual -->
+    <field id="expanded" type="boolean" value="false" onChange="onExpanded" />
+    <field id="badge" type="integer" value="0" onChange="render" />       <!-- cuántos hay en la fila -->
+    <field id="status" type="string" value="searching" onChange="onStatus" />   <!-- ok | searching | offline (NO RESPONDE) -->
+    <field id="event" type="assocarray" alwaysNotify="true" />            <!-- {type: "open", index} | {type: "close"} -->
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/SideMenu.brs" />
+  <children>
+    <Rectangle id="shade" width="1920" height="1080" visible="false" />
+    <Rectangle id="rail" width="120" height="1080" />
+    <Rectangle id="panel" width="560" height="1080" visible="false" />
+    <!-- Logo: la marca (1▶ en el cuadrado limón) y el nombre con su altura de mayúsculas centrada en ella. -->
+    <Poster id="brandMark" uri="pkg:/images/marca.png" translation="[48, 46]" width="60" height="60" visible="false" />
+    <Label id="caption" translation="[124, 48]" text="ONE TV" visible="false" />
+    <Group id="items" />
+    <Group id="state" translation="[48, 900]" visible="false">
+      <Poster id="stateIcon" uri="pkg:/images/icons/laptop.png" width="32" height="32" translation="[0, 12]" />
+      <Label id="stateHead" translation="[44, 0]" height="56" vertAlign="center" text="COMPUTADORA" />
+      <Label id="stateWord" height="56" vertAlign="center" />
+    </Group>
+    <Label id="hint" translation="[48, 990]" width="500" visible="false" text="OK: abrir   ·   ›: volver al contenido" />
+  </children>
+</component>

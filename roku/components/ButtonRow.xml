@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fila de botones con ícono y palabra (la ficha, «Reproducir todo», «Buscar en YouTube») o de segmentos
+     pegados para elegir una opción (style="segments": filtros Todas / Con español / Sin español).
+     Botones: el que tiene el foco, relleno limón con letra negra; el principal sin foco, contorno y letra
+     limón; uno peligroso ({danger: true}, p. ej. «Ocultar canal»), letra guinda claro; los demás, contorno gris.
+     Segmentos: la opción elegida con letra limón; con el foco, relleno limón.
+     Izquierda/derecha para moverse, OK para elegir. -->
+<component name="ButtonRow" extends="Group">
+  <interface>
+    <field id="buttons" type="array" onChange="build" />          <!-- [{id, text, icon, danger}] -->
+    <field id="style" type="string" value="big" />                <!-- big | segments -->
+    <field id="primary" type="boolean" value="true" />            <!-- ¿el primero es el botón principal? -->
+    <field id="selectedId" type="string" onChange="render" />     <!-- segmento elegido -->
+    <field id="focusIndex" type="integer" value="0" onChange="render" />
+    <field id="rowWidth" type="integer" />                        <!-- ancho total, para alinear -->
+    <field id="maxWidth" type="integer" value="1700" />           <!-- si no cabe, letra más chica -->
+    <field id="event" type="assocarray" alwaysNotify="true" />    <!-- {id, index} al pulsar OK -->
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/ButtonRow.brs" />
+</component>

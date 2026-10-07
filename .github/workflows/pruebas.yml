@@ -1,0 +1,25 @@
+# Pruebas de cada cambio: las de la computadora (macOS, con ffmpeg) y la revisión del código de la app del Roku.
+name: Pruebas
+on:
+  push:
+  pull_request:
+
+jobs:
+  computadora:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ffmpeg
+        run: brew install ffmpeg
+      - name: Pruebas
+        run: python3 -m unittest discover -s pruebas -p 'test_*.py'
+
+  roku:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Código de la app del Roku (BrightScript)
+        run: npx -y brighterscript@0

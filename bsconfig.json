@@ -1,0 +1,5 @@
+{
+  "rootDir": "roku",
+  "createPackage": false,
+  "stagingDir": ".bsc-staging"
+}

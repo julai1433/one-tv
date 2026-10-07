@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Una opción de las listas del panel de idioma. La elegida lleva la palomita y va en limón (como la sección
+     actual del menú); la que tiene el foco, relleno limón con letra negra. -->
+<component name="OptionItem" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <field id="focusPercent" type="float" onChange="render" />
+    <field id="listHasFocus" type="boolean" value="false" onChange="render" />
+    <field id="width" type="float" onChange="onSize" />
+    <field id="height" type="float" onChange="onSize" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/OptionItem.brs" />
+  <children>
+    <Poster id="bg" uri="pkg:/images/fill.9.png" visible="false" />
+    <Poster id="icon" width="32" height="32" translation="[20, 16]" />
+    <Label id="label" translation="[68, 0]" vertAlign="center" />
+    <Poster id="chevron" uri="pkg:/images/icons/chevron-right.png" width="32" height="32" visible="false" />
+  </children>
+</component>

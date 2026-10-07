@@ -1,0 +1,19 @@
+{
+  "carpetas": [
+    "~/Movies/Biblioteca"
+  ],
+  "puerto": 8765,
+  "roku_ip": "",
+  "roku_password": "contraseña-del-modo-desarrollador",
+  "titulos": {},
+  "musica": [
+    "~/Music/Biblioteca"
+  ],
+  "sin_conexion": "~/Movies/One TV/Sin conexión",
+  "sin_conexion_gb": 100,
+  "opensubtitles": {
+    "api_key": "",
+    "usuario": "",
+    "clave": ""
+  }
+}

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ficha: fotograma de fondo, título en letra de marquesina (la serie, con el episodio debajo), qué idiomas
+     tiene y una fila de botones. «Idioma» abre un panel con dos columnas (audio y subtítulos) y «Buscar
+     subtítulos en internet». * muestra la sinopsis completa y los detalles técnicos. Para YouTube, «Compartir
+     (código QR)» abre el código (solo Atrás lo cierra). -->
+<component name="DetailView" extends="Group">
+  <interface>
+    <field id="server" type="string" />
+    <field id="data" type="assocarray" onChange="onData" />
+    <field id="message" type="string" onChange="onMessage" />
+    <field id="messageTone" type="string" value="ok" />         <!-- ok | error: color del mensaje -->
+    <field id="event" type="assocarray" alwaysNotify="true" />   <!-- {action: button|audio|sub|findsubs|close, …} -->
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/components/DetailView.brs" />
+  <children>
+    <Rectangle id="bg" width="1920" height="1080" />
+    <Poster id="backdrop" translation="[560, 0]" width="1360" height="765" loadDisplayMode="scaleToZoom" />
+    <Poster id="fadeLeft" uri="pkg:/images/fade_left.png" translation="[560, 0]" width="900" height="765" />
+    <Poster id="fadeBottom" uri="pkg:/images/fade_bottom.png" translation="[560, 405]" width="1360" height="362" />
+    <LayoutGroup id="texts" translation="[110, 96]" layoutDirection="vert">
+      <Label id="title" width="1300" wrap="true" maxLines="2" lineSpacing="-8" />
+      <Label id="subtitle" width="1250" />
+      <LayoutGroup id="metaRow" layoutDirection="horiz" itemSpacings="[22]" vertAlignment="center">
+        <Label id="meta" />
+        <Group id="tagGroup">
+          <Poster id="tagEdge" uri="pkg:/images/fill.9.png" width="158" height="50" />
+          <Poster id="tagBg" uri="pkg:/images/fill.9.png" translation="[3, 3]" width="152" height="44" />
+          <Label id="tag" translation="[3, 3]" width="152" height="44" text="ESPAÑOL" horizAlign="center" vertAlign="center" />
+        </Group>
+      </LayoutGroup>
+      <LayoutGroup id="langRow" layoutDirection="horiz" itemSpacings="[14]" vertAlignment="center">
+        <Poster id="langIcon" uri="pkg:/images/icons/audio.png" width="34" height="34" />
+        <Label id="langs" width="1150" />
+      </LayoutGroup>
+      <Label id="desc" width="1150" wrap="true" maxLines="3" lineSpacing="6" />
+    </LayoutGroup>
+    <ButtonRow id="buttons" translation="[110, 740]" />
+    <Label id="message" translation="[110, 840]" width="1700" />
+    <Label id="hints" translation="[110, 990]" width="1700" />
+
+    <!-- Idioma: audio a la izquierda, subtítulos a la derecha. -->
+    <Group id="langPanel" visible="false">
+      <Rectangle id="panelShade" width="1920" height="1080" />
+      <Rectangle id="panelBg" translation="[820, 0]" width="1100" height="1080" />
+      <Label id="panelTitle" translation="[880, 48]" text="IDIOMA" />
+      <Poster id="audioIcon" translation="[880, 176]" width="34" height="34" uri="pkg:/images/icons/audio.png" />
+      <Label id="audioHead" translation="[928, 166]" height="54" vertAlign="center" text="Audio" />
+      <Poster id="subsIcon" translation="[1390, 176]" width="34" height="34" uri="pkg:/images/icons/captions.png" />
+      <Label id="subsHead" translation="[1438, 166]" height="54" vertAlign="center" text="Subtítulos" />
+      <MarkupList id="audioList" translation="[870, 236]" itemComponentName="OptionItem" itemSize="[470, 64]"
+                  itemSpacing="[0, 8]" numRows="9" drawFocusFeedback="false" vertFocusAnimationStyle="floatingFocus" />
+      <MarkupList id="subsList" translation="[1380, 236]" itemComponentName="OptionItem" itemSize="[500, 64]"
+                  itemSpacing="[0, 8]" numRows="9" drawFocusFeedback="false" vertFocusAnimationStyle="floatingFocus" />
+      <Label id="panelMessage" translation="[880, 920]" width="1000" />
+      <Label id="panelHint" translation="[880, 990]" width="1000"
+             text="OK: elegir   ·   ‹ ›: audio o subtítulos   ·   Atrás: cerrar" />
+    </Group>
+
+    <!-- Sinopsis completa y detalles técnicos (botón *). -->
+    <Group id="descOverlay" visible="false">
+      <Rectangle id="descBg" width="1920" height="1080" />
+      <Label id="descTitle" translation="[110, 64]" width="1700" wrap="true" maxLines="2" />
+      <ScrollableText id="descFull" translation="[110, 200]" width="1700" height="760" lineSpacing="8" />
+      <Label id="descHint" translation="[110, 990]" text="Arriba / abajo: desplazar   ·   Atrás o *: cerrar" />
+    </Group>
+
+    <!-- Compartir un video de YouTube: código QR para abrirlo desde el teléfono. -->
+    <Group id="qrOverlay" visible="false">
+      <Rectangle id="qrBg" width="1920" height="1080" />
+      <Label id="qrTitle" translation="[110, 80]" width="1700" wrap="true" maxLines="2" />
+      <Rectangle id="qrPaper" translation="[98, 248]" width="648" height="648" />
+      <Poster id="qrImage" translation="[110, 260]" width="624" height="624" loadDisplayMode="scaleToFit" />
+      <Label id="qrText" translation="[820, 300]" width="1000" wrap="true"
+             text="Apunta la cámara del teléfono al código: se abre el video en YouTube y desde ahí lo compartes por WhatsApp, mensaje o lo que quieras." />
+      <Label id="qrUrl" translation="[820, 560]" width="1000" />
+      <Label id="qrHint" translation="[820, 820]" width="1000" text="Atrás: volver" />
+    </Group>
+  </children>
+</component>

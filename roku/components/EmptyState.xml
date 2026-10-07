@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vacío que enseña (DESIGN.md, pieza 4): la fila conserva su forma con huecos dibujados (contorno gris) y,
+     ocupando sus primeros lugares, una frase de marquesina, la causa y, si la tele puede hacer algo, la acción en
+     limón (con el foco, un botón limón). Lo usan las filas vacías (dentro de PosterItem), las cuadrículas, Buscar
+     (con el texto arriba de los huecos) y la pantalla sin Mac. -->
+<component name="EmptyState" extends="Group">
+  <interface>
+    <!-- {shape, width, height, phrase, cause, detail, action, actionId, big, layout: side | stack} -->
+    <field id="spec" type="assocarray" onChange="build" />
+    <field id="focused" type="boolean" value="false" onChange="render" />
+    <field id="event" type="assocarray" alwaysNotify="true" />   <!-- {action} al pulsar OK cuando tiene el foco -->
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/components/EmptyState.brs" />
+  <children>
+    <Group id="slots" />
+    <Poster id="frame" uri="pkg:/images/line.9.png" visible="false" />
+    <Label id="phrase" />
+    <Label id="cause" wrap="true" />
+    <Label id="detail" />
+    <Group id="action" visible="false">
+      <Poster id="actionBg" uri="pkg:/images/fill.9.png" />
+      <Label id="actionText" vertAlign="center" />
+      <Poster id="actionIcon" uri="pkg:/images/icons/chevron-right.png" width="32" height="32" />
+    </Group>
+  </children>
+</component>

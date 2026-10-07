@@ -1,0 +1,27 @@
+# Claves y ajustes de esta casa (usar config.example.json como plantilla)
+config.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store
+
+# Node (validación de BrightScript)
+node_modules/
+
+# Salidas de pruebas y paquetes
+*.zip
+pruebas/salidas/
+
+# Copias de trabajo de los subagentes (git worktree)
+.claude/
+
+# Registros, editores y variables locales
+*.log
+.vscode/
+.idea/
+.env
+.bsc-staging/

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Habla con la Mac en segundo plano (la red no puede ir en el hilo de la interfaz).
+     Con "body" hace POST (JSON); sin él, GET. -->
+<component name="ApiTask" extends="Task">
+  <interface>
+    <field id="url" type="string" />
+    <field id="body" type="string" />
+    <field id="result" type="assocarray" />
+    <field id="error" type="string" />
+    <field id="done" type="boolean" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/ApiTask.brs" />
+</component>

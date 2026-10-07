@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Una tarjeta de las filas y las cuadrículas. Según "style": póster (2:3), fotograma o video (16:9 con título
+     debajo; si es de YouTube, con su duración sobre la miniatura), video de YouTube dentro de un hueco de póster
+     (la miniatura lo llena), canal (su foto en círculo, con
+     sus iniciales mientras llega; si está fijado, un punto limón con la chincheta), ajuste (dos segmentos o
+     un botón) o vacío (EmptyState, se crea solo cuando hace falta). Con el foco: marco limón de 6 px pegado al
+     borde (por dentro), la imagen al 106 % y el resto al 55 % (el reflector); todo sigue el avance del foco de
+     la propia lista. -->
+<component name="PosterItem" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <field id="focusPercent" type="float" onChange="onFocus" />
+    <field id="rowFocusPercent" type="float" onChange="onFocus" />
+    <field id="rowListHasFocus" type="boolean" value="true" onChange="onListFocus" />
+    <field id="gridHasFocus" type="boolean" value="true" onChange="onGridFocus" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Theme.brs" />
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/components/PosterItem.brs" />
+  <children>
+    <!-- Todo va corrido el margen de la tarjeta (tilePad): la lista recorta lo que se sale del hueco. -->
+    <Group id="pad">
+    <Group id="body">
+      <Poster id="card" uri="pkg:/images/fill.9.png" visible="false" />
+      <Rectangle id="fallback" visible="false" />
+      <Label id="fallbackTitle" wrap="true" vertAlign="bottom" visible="false" />
+      <Poster id="poster" loadDisplayMode="scaleToZoom" />
+      <!-- Video de YouTube en hueco de póster: franja oscura abajo para leer «YouTube» y el canal. -->
+      <Poster id="scrim" uri="pkg:/images/fade_bottom.png" visible="false" />
+      <Label id="initials" horizAlign="center" vertAlign="center" visible="false" />
+      <!-- Foto del canal (ya en círculo, con lo de afuera transparente): tapa las iniciales cuando llega. -->
+      <Poster id="avatar" loadDisplayMode="scaleToFit" visible="false" />
+      <Rectangle id="barBg" height="6" visible="false" />
+      <Rectangle id="bar" width="0" height="6" visible="false" />
+      <!-- Duración de un video de YouTube: negro al 85 % con la cifra, abajo a la derecha de la miniatura. -->
+      <Poster id="durBg" uri="pkg:/images/fill.9.png" visible="false" />
+      <Label id="dur" horizAlign="center" vertAlign="center" visible="false" />
+      <!-- Guardado sin conexión: ícono de descarga en negro al 85 %, arriba a la derecha (la duración va abajo, «Español» arriba a la izquierda). -->
+      <Poster id="savedBg" uri="pkg:/images/fill.9.png" visible="false" />
+      <Poster id="savedIcon" uri="pkg:/images/icons/download.png" width="28" height="28" visible="false" />
+      <!-- Se oye en español: guinda con letra y contorno limón claro, arriba a la izquierda. -->
+      <Poster id="tagEdge" translation="[9, 9]" uri="pkg:/images/fill.9.png" visible="false" />
+      <Poster id="tagBg" translation="[12, 12]" uri="pkg:/images/fill.9.png" visible="false" />
+      <Label id="tag" translation="[12, 12]" text="ESPAÑOL" horizAlign="center" vertAlign="center" visible="false" />
+      <Poster id="ring" uri="pkg:/images/focus.9.png" visible="false" />
+      <!-- Canal anclado: punto limón con la chincheta, arriba a la derecha del círculo, recortado en negro. -->
+      <Group id="pinMark" visible="false">
+        <Poster id="pinEdge" uri="pkg:/images/circle.png" width="50" height="50" />
+        <Poster id="pinDot" uri="pkg:/images/circle.png" translation="[5, 5]" width="40" height="40" />
+        <Poster id="pinIcon" uri="pkg:/images/icons/pin.png" translation="[12, 12]" width="26" height="26" />
+      </Group>
+    </Group>
+    <Label id="title" wrap="true" />
+    <Label id="subtitle" />
+    <!-- La marca de YouTube (rojo con triángulo blanco): se reconoce de un vistazo que es un video de YouTube. -->
+    <Poster id="ytIcon" uri="pkg:/images/yt_mark.png" visible="false" />
+    <!-- Ajuste general: un título y debajo dos segmentos o un botón (se arma en PosterItem.brs). -->
+    <Group id="setting" visible="false" />
+    </Group>
+  </children>
+</component>
