@@ -41,7 +41,7 @@ class Contenedor(unittest.TestCase):
             self.assertEqual(d["cfg"]["carpetas"], ["/biblioteca"])
             self.assertEqual(d["cfg"]["musica"], ["/musica"])
             self.assertEqual(d["cfg"]["descargas"], [])
-            self.assertEqual(d["cfg"]["sin_conexion"], f"{t}/sin_conexion")
+            self.assertEqual(Path(d["cfg"]["sin_conexion"]), T / "sin_conexion")
 
     def test_variables_ganan_sobre_config_json(self):
         with tempfile.TemporaryDirectory() as t:
