@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -44,6 +45,7 @@ import app.onetv.tv.Vacio
 import app.onetv.tv.VistaBuscar
 import app.onetv.tv.VistaCuadricula
 import app.onetv.tv.VistaFilas
+import app.onetv.tv.opcionesElegir
 import app.onetv.tv.data.marquee
 
 /** Toda la app: el contenido, el menú lateral y lo que se abre encima (ficha, reproductor, listas, avisos). */
@@ -70,7 +72,7 @@ fun AppUI(e: Estado, video: @Composable () -> Unit) {
         }
         e.lista?.let { Box(Modifier.zIndex(6f)) { ListaUI(e, it) } }
         if (e.listaNueva != null) Box(Modifier.zIndex(6.5f)) { ListaNuevaUI(e) }
-        if (e.aviso.isNotEmpty()) Box(Modifier.fillMaxSize().zIndex(7f), contentAlignment = Alignment.BottomCenter) {
+        if (e.aviso.isNotEmpty() && e.conexion != Conexion.ELEGIR) Box(Modifier.fillMaxSize().zIndex(7f), contentAlignment = Alignment.BottomCenter) {
             Box(Modifier.padding(bottom = 64.u).background(C.raise2).padding(horizontal = 28.u, vertical = 18.u)) {
                 Texto(e.aviso, font(32, color = if (e.avisoError) C.guindaLight else C.text), maxLines = 2)
             }
@@ -126,6 +128,7 @@ fun MenuLateral(e: Estado) {
                 val (word, color) = if (e.sinServidor) "NO RESPONDE" to C.guindaLight else "CONECTADA" to C.lime
                 Texto(word, font(38, Face.DISPLAY, color), Modifier.padding(start = 14.u))
             }
+            if (e.nombreServidor.isNotEmpty()) Texto(e.nombreServidor, font(27, color = C.textSoft), Modifier.offset(92.u, 950.u).width(440.u))
             Texto("OK: abrir   ·   ›: volver al contenido", font(27, color = C.muted), Modifier.offset(48.u, 990.u).width(500.u))
         }
     }
@@ -277,7 +280,10 @@ fun PantallaSinServidor(e: Estado) {
                 font(38, color = C.textSoft), maxLines = 3)
             Texto("Dirección: " + e.direccion.removePrefix("http://"), font(27, color = C.muted))
             Spacer(Modifier.height(12.u))
-            BotonUI(app.onetv.tv.Boton("retry", "Buscar ahora", "refresh"), foco = !e.menuAbierto)
+            Row(horizontalArrangement = Arrangement.spacedBy(16.u)) {
+                BotonUI(app.onetv.tv.Boton("retry", "Buscar ahora", "refresh"), foco = !e.menuAbierto && e.conexionBoton == 0, principal = true)
+                BotonUI(app.onetv.tv.Boton("otra", "Elegir otra computadora", "laptop"), foco = !e.menuAbierto && e.conexionBoton == 1)
+            }
         }
     }
 }
@@ -290,7 +296,8 @@ fun PantallaConexion(e: Estado) {
             ImagenApp("marca", Modifier.size(72.u))
             Texto("ONE TV", font(72, Face.BLACK), Modifier.padding(start = 24.u))
         }
-        Column(Modifier.offset(110.u, 300.u).width(1500.u), verticalArrangement = Arrangement.spacedBy(20.u)) {
+        val y = if (e.conexion == Conexion.ELEGIR) 220 else 300   // la lista necesita más alto
+        Column(Modifier.offset(110.u, y.u).width(1500.u), verticalArrangement = Arrangement.spacedBy(20.u)) {
             when (e.conexion) {
                 Conexion.BUSCANDO -> {
                     Texto("BUSCANDO LA COMPUTADORA", font(72, Face.BLACK))
@@ -307,11 +314,58 @@ fun PantallaConexion(e: Estado) {
                     }
                 }
                 Conexion.ESCRIBIR -> CampoDireccion(e)
+                Conexion.ELEGIR -> ElegirComputadora(e)
                 Conexion.LISTA -> {}
             }
         }
-        Texto(if (e.conexion == Conexion.ESCRIBIR) "OK: conectar   ·   Atrás: volver" else "OK: elegir   ·   Atrás: salir",
-            font(27, color = C.muted), Modifier.offset(110.u, 990.u))
+        val pie = when {
+            e.conexion == Conexion.ESCRIBIR -> "OK: conectar   ·   Atrás: volver"
+            e.conexion == Conexion.ELEGIR && e.lib != null -> "OK: elegir   ·   Atrás: seguir con la de ahora"
+            else -> "OK: elegir   ·   Atrás: salir"
+        }
+        Texto(pie, font(27, color = C.muted), Modifier.offset(110.u, 990.u))
+    }
+}
+
+/** «Elige la computadora»: las que tienen One TV en la casa, con su nombre, cuántos videos tienen y su dirección (la
+ *  opción con el foco en relleno limón, como las listas para elegir), y al final buscar otra vez o escribir la dirección. */
+@Composable
+fun ElegirComputadora(e: Estado) {
+    Texto("ELIGE LA COMPUTADORA", font(72, Face.BLACK))
+    val nota = when {
+        e.buscandoTodas -> "Buscando las computadoras con One TV de la casa. Tarda unos segundos."
+        e.encontradas.isEmpty() -> "No encontré ninguna computadora con One TV. Revisa que esté encendida y en el mismo Wi-Fi que la TV."
+        e.notaElegir.isNotEmpty() -> e.notaElegir
+        e.lib == null -> "Hay más de una computadora con One TV en la casa. ¿Cuál quieres ver en esta TV?"
+        else -> "Las computadoras con One TV de la casa. La que elijas se recuerda."
+    }
+    Texto(nota, font(38, color = C.textSoft), maxLines = 2)
+    if (e.buscandoTodas) return
+    val opciones = e.opcionesElegir()
+    val rowH = 104
+    val gap = 10
+    val viewH = 4 * rowH + 3 * gap   // caben cuatro; con más, se corre para que se vea la elegida
+    val k = e.elegirIndex.coerceIn(0, opciones.size - 1)
+    val scroll = (k * (rowH + gap) + rowH - viewH).coerceAtLeast(0)
+    Box(Modifier.padding(top = 8.u).size(1200.u, viewH.u).clipToBounds()) {
+        Column(Modifier.offset(0.u, (-scroll).u), verticalArrangement = Arrangement.spacedBy(gap.u)) {
+            opciones.forEachIndexed { i, o ->
+                val lit = i == k
+                Box(Modifier.size(1200.u, rowH.u).clip(RoundedCornerShape(2.u)).background(if (lit) C.lime else Color.Transparent)) {
+                    Box(Modifier.offset(12.u, 12.u).size(142.u, 80.u).background(C.raise3), contentAlignment = Alignment.Center) {
+                        Icono(o.icon, C.text, Modifier.size(48.u))
+                    }
+                    if (o.line.isEmpty()) {
+                        Box(Modifier.offset(178.u, 0.u).size(998.u, rowH.u), contentAlignment = Alignment.CenterStart) {
+                            Texto(o.title, font(38, Face.BOLD, if (lit) C.onLime else C.text))
+                        }
+                    } else {
+                        Texto(o.title, font(38, Face.BOLD, if (lit) C.onLime else C.text), Modifier.offset(178.u, 10.u).width(998.u))
+                        Texto(o.line, font(27, color = if (lit) C.onLime else C.muted), Modifier.offset(178.u, 62.u).width(998.u))
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -73,6 +73,21 @@ iguales para todos.
 
 ### Servidor en macOS
 
+**La forma más fácil: un solo comando.** Pega esto en la Terminal y pulsa Enter:
+
+```
+curl -fsSL https://raw.githubusercontent.com/julai1433/one-tv/main/instalar.sh | bash
+```
+
+Baja One TV a la carpeta **One TV** de tu usuario; si a la Mac le falta Python o ffmpeg, los baja solo para One TV
+(dentro de esa carpeta; sin Homebrew ni las herramientas de Xcode, sin pedir contraseña); deja el arranque automático
+puesto (paso 5) y abre el navegador en la **bienvenida** (<http://localhost:8765/bienvenida>), que termina la
+configuración. Volver a pegarlo lo pone al día sin perder nada. Con eso te saltas los pasos 1, 2, 3 y 5; el 4 (los
+permisos que pide macOS) sí aplica, y luego sigues con [la TV](#parte-3-la-tv). Detalles:
+[instalar-un-paso.md](instalar-un-paso.md).
+
+**A mano** (con Homebrew y git, para quien prefiere tener cada pieza a la vista):
+
 #### Paso 1. Instalar los programas de apoyo
 
 **Homebrew** es el «instalador de programas» de los desarrolladores para macOS. Con él se instala lo demás.
@@ -123,7 +138,10 @@ Desde la carpeta del proyecto:
 ./cine
 ```
 
-Como todavía no hay configuración, te hace **cuatro preguntas** (Enter acepta lo que sale entre corchetes):
+Como todavía no hay configuración, crea lo básico **sin preguntar nada** (tus películas y series van en
+`~/Movies/Biblioteca`, que crea si no existe; el Roku y tu música se buscan solos) y abre el navegador en la
+**bienvenida**, que termina la configuración. Si prefieres contestar en la Terminal, `./cine configurar` hace
+**cuatro preguntas** (Enter acepta lo que sale entre corchetes):
 
 1. **Carpeta de la biblioteca**: donde van a estar tus películas y series. Sugiere `~/Movies/Biblioteca`. Si
    no existe, la crea. (`~` significa «tu carpeta de usuario».)
@@ -134,10 +152,10 @@ Como todavía no hay configuración, te hace **cuatro preguntas** (Enter acepta 
 4. **Carpeta de música** (opcional): donde está tu música (ver [Tu música](#opcional-tu-música)). Sugiere `~/Music/Biblioteca` si existe;
    escribe «no» si no quieres la sección Música.
 
-Con eso crea el archivo `config.json`. También revisa que ffmpeg esté instalado y te avisa si no. Puedes repetir
-las preguntas cuando quieras con `./cine configurar`; no pierde lo que ya tenías (claves, títulos).
+Con eso crea (o actualiza) el archivo `config.json`. También revisa que ffmpeg esté instalado y te avisa si no.
+Puedes repetir las preguntas cuando quieras; no pierde lo que ya tenías (claves, títulos).
 
-Después de las preguntas, `./cine` arranca el servidor en esa ventana de la Terminal. Verás algo como
+Luego `./cine` arranca el servidor en esa ventana de la Terminal. Verás algo como
 `✓ Sirviendo en http://192.168.1.20:8765` y se abre la página en el navegador de la computadora (vacía si aún no hay
 videos). Para pararlo: `Ctrl + C`. Mientras no hagas el [paso 5](#paso-5-arranque-automático), el servidor solo vive mientras esa ventana esté
 abierta.

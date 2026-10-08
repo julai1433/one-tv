@@ -6,9 +6,14 @@ textos y teclas del control.
 
 ## Qué hace
 
-- **Se conecta sola**: al abrirla busca la computadora con One TV en la red de la casa y la recuerda. Si la
-  computadora cambia de dirección o la TV cambia de Wi-Fi, la vuelve a buscar sola. Si no la encuentra, deja buscar
-  otra vez o escribir la dirección con el control.
+- **Se conecta sola**: al abrirla busca la computadora con One TV en la red de la casa y la recuerda (su dirección y su
+  nombre). Si la computadora cambia de dirección o la TV cambia de Wi-Fi, la vuelve a buscar sola (la misma, por su
+  nombre; nunca se pasa sola a otra). Si no la encuentra, deja buscar otra vez o escribir la dirección con el control.
+- **Varias computadoras con One TV** (por ejemplo, una computadora y un NAS): si encuentra más de una y ninguna es la
+  de antes, pregunta cuál, con el nombre de cada una (`nombre` de `/api/status`) y cuántos videos tiene. Para cambiar
+  después: Fila de reproducción › Ajustes generales › **Computadora** › «Cambiar» (o «Elegir otra computadora» en
+  «No encuentro la computadora»). Al cambiar, se despide de la anterior (`/api/tv/adios`) y carga la nueva desde Inicio
+  (`Computadoras.kt`).
 - **Buscar, Inicio, En español, Películas, Series, YouTube, Música, En vivo y Fila de reproducción**, con el menú
   lateral, las filas de pósters, la ficha («Continuar desde…», «A continuación», «Al final de la fila» y el panel
   «Idioma» con audio y subtítulos en dos columnas y «Buscar subtítulos en internet») y la página de cada serie.
@@ -102,7 +107,8 @@ desinstalarla primero (lo que se vio vive en la computadora y no se pierde).
 3. Abre «One TV» desde las apps de la TV. Encuentra sola la computadora si está en el mismo Wi-Fi.
 
 Para probar en el emulador contra un servidor de prueba: `adb -s emulator-5554 shell am start -n app.onetv.tv/.MainActivity
---ei puerto 8797` (busca en ese puerto) o `--es servidor http://10.0.2.2:8797` (dirección fija). Como en el Roku,
+--ei puerto 8797` (busca en ese puerto; con dos servidores de prueba a la vez, `--eia puertos 8804,8805`) o
+`--es servidor http://10.0.2.2:8797` (dirección fija). Como en el Roku,
 `--es contentId yt:<video>` o el id de una película abre la app reproduciéndolo. Con la app abierta, la web del
 servidor de prueba la maneja («Ver en la TV», la barra «En la TV»), o a mano: `curl -H 'Content-Type: application/json'
 -d '{"id":"<película>"}' localhost:8797/api/play`, `-d '{"key":"Play"}' …/api/key`, `-d '{"t":120}' …/api/seek`.

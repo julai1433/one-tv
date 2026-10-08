@@ -7,11 +7,16 @@
   achicada (600 px) en la caché.
 - Cada canción se sirve tal cual si es MP3 o AAC; FLAC, ALAC, WAV, AIFF, Ogg… se convierten una sola vez a AAC de
   256 kb/s (con el codificador de macOS) y se guardan en la caché: Chrome no abre ALAC y el Roku no abre todo.
+- Se manda por partes (una biblioteca de 70 000 canciones serían ~25 MB de una vez, y el Roku no puede con eso):
+  home() lo de la sección Música (unas tarjetas por fila y los totales), more() más artistas, álbumes o listas,
+  page() un álbum, un artista o una lista con sus canciones (por tandas), mix() las canciones para escuchar seguidas o
+  al azar, search() buscar. public() (todo junto) queda para las apps viejas.
 """
 
 import hashlib
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -31,6 +36,13 @@ ART_SIZE = 600
 SKIP_DIRS = {"_playlists"}              # las listas no son álbumes (se leen aparte)
 UNKNOWN_ARTIST = "Artista desconocido"
 UNKNOWN_ALBUM = "Sin álbum"
+HOME_ROW = 40        # tarjetas de cada fila en la respuesta inicial (listas, agregadas hace poco)
+PAGE = 60            # artistas o álbumes por tanda (la primera va con la respuesta inicial)
+PAGE_MAX = 200
+TRACKS_PAGE = 200    # canciones por tanda en la página de un álbum, un artista o una lista
+TRACKS_MAX = 500
+MIX_MAX = 500        # canciones que se mandan para escuchar seguidas (o al azar) de algo más grande
+SEARCH_MAX = 20
 
 
 def _nfc(text):
@@ -39,6 +51,17 @@ def _nfc(text):
 
 def _key(text):
     return " ".join(_nfc(text).casefold().split())
+
+
+def _plain(text):
+    """Para buscar: sin acentos ni mayúsculas («Café» -> «cafe»)."""
+    return "".join(c for c in unicodedata.normalize("NFKD", _key(text)) if not unicodedata.combining(c))
+
+
+def _window(n, index, size):
+    """(desde, hasta) de una ventana de `size` alrededor de `index` (un poco antes, para «anterior»)."""
+    lo = max(0, min(index - 50, n - size))
+    return lo, min(n, lo + size)
 
 
 def _hid(*parts, n=12):
@@ -93,7 +116,8 @@ class Music:
         self.cache = Path(cache_dir)
         self.log = log
         self.prober = prober
-        self.lock = threading.Lock()
+        self.lock = threading.Lock()        # lo ya armado (se cambia entero, de una vez)
+        self.scan_lock = threading.Lock()   # una lectura de las carpetas a la vez
         self.convert_lock = threading.Lock()
         self.converting = {}       # canción -> threading.Event mientras se convierte
         try:
@@ -101,7 +125,11 @@ class Music:
         except (OSError, ValueError):
             self.probes = {}       # ruta -> {"mtime", "size", "info"}
         self.tracks, self.albums, self.artists, self.playlists = {}, {}, {}, []
+        self.lists = {}            # id -> lista (las mismas de self.playlists)
+        self.order = {"artists": [], "albums": [], "recent": [], "playlists": []}   # ids en el orden en que se muestran
+        self.search_index = None   # se arma la primera vez que alguien busca
         self.scanned_at = 0
+        self.scanning = False
 
     @property
     def enabled(self):
@@ -128,34 +156,52 @@ class Music:
         return files, lists
 
     def scan(self, force=False):
-        """Lee lo nuevo (o lo que cambió) y arma artistas, álbumes y listas. -> cuántas canciones hay."""
-        with self.lock:
+        """Lee lo nuevo (o lo que cambió) y arma artistas, álbumes y listas. -> cuántas canciones hay.
+        Mientras lee, lo de antes se sigue mandando (no se espera a ffprobe); si es mucho lo nuevo (la primera vez con
+        una biblioteca grande), lo leído se va mostrando cada 2 000 canciones."""
+        with self.scan_lock:
             if not force and time.time() - self.scanned_at < 20:
                 return len(self.tracks)
-            files, lists = self._walk()
-            stats, todo = {}, []
-            for p in files:
-                try:
-                    st = p.stat()
-                except OSError:
-                    continue
-                stats[p] = st
-                c = self.probes.get(str(p))
-                if not c or c["mtime"] != st.st_mtime or c["size"] != st.st_size:
-                    todo.append(p)
-            if todo:
+            self.scanning = True
+            try:
+                files, lists = self._walk()
+                stats, todo = {}, []
+                for p in files:
+                    try:
+                        st = p.stat()
+                    except OSError:
+                        continue
+                    stats[p] = st
+                    c = self.probes.get(str(p))
+                    if not c or c["mtime"] != st.st_mtime or c["size"] != st.st_size:
+                        todo.append(p)
+                live = {str(p) for p in stats}
+                gone = [k for k in self.probes if k not in live]
+                for k in gone:
+                    del self.probes[k]
                 with ThreadPoolExecutor(max_workers=6) as pool:
-                    for p, info in zip(todo, pool.map(self.prober, todo)):
-                        self.probes[str(p)] = {"mtime": stats[p].st_mtime, "size": stats[p].st_size, "info": info}
-            live = {str(p) for p in stats}
-            gone = [k for k in self.probes if k not in live]
-            for k in gone:
-                del self.probes[k]
-            if todo or gone:
-                self._save()
-            self._build(stats, lists)
-            self.scanned_at = time.time()
+                    for i in range(0, len(todo), 2000):
+                        chunk = todo[i:i + 2000]
+                        for p, info in zip(chunk, pool.map(self.prober, chunk)):
+                            self.probes[str(p)] = {"mtime": stats[p].st_mtime, "size": stats[p].st_size, "info": info}
+                        if i + 2000 < len(todo):   # va para largo: lo leído hasta aquí ya se ve
+                            self._save()
+                            self._build(stats, lists)
+                if todo or gone:
+                    self._save()
+                self._build(stats, lists)
+                self.scanned_at = time.time()
+            finally:
+                self.scanning = False
             return len(self.tracks)
+
+    def ensure(self):
+        """Para lo que se manda a la web y a la TV: la primera vez lee las carpetas (y espera); después, si ya pasó un
+        rato, las vuelve a mirar en segundo plano y contesta en seguida con lo que ya tiene."""
+        if not self.scanned_at and not self.scanning:
+            self.scan()
+        elif time.time() - self.scanned_at >= 20 and not self.scanning:
+            threading.Thread(target=self.scan, daemon=True).start()
 
     def _save(self):
         try:
@@ -214,28 +260,207 @@ class Music:
                 continue
             if ids:
                 playlists.append({"id": _hid("lista", str(lp), n=10), "title": lp.stem, "tracks": ids})
-        self.tracks, self.albums, self.artists, self.playlists = tracks, albums, artists, playlists
+        order = self._orders(tracks, albums, artists, playlists)
+        with self.lock:
+            self.tracks, self.albums, self.artists, self.playlists = tracks, albums, artists, playlists
+            self.lists = {p["id"]: p for p in playlists}
+            self.order = order
+            self.search_index = None
+
+    @staticmethod
+    def _orders(tracks, albums, artists, playlists):
+        """Los ids en el orden en que se muestran: artistas por nombre, álbumes por artista y año, lo más nuevo."""
+        return {"artists": sorted(artists, key=lambda i: _key(artists[i]["name"])),
+                "albums": sorted(albums, key=lambda i: (_key(albums[i]["artist"]), albums[i]["year"] or 9999,
+                                                        _key(albums[i]["title"]))),
+                "recent": sorted(albums, key=lambda i: -albums[i]["added"]),
+                "playlists": [p["id"] for p in playlists]}
+
+    def _derive(self):
+        """Vuelve a armar los órdenes con lo que hay (para quien llena la música a mano, como las pruebas)."""
+        with self.lock:
+            self.order = self._orders(self.tracks, self.albums, self.artists, self.playlists)
+            self.lists = {p["id"]: p for p in self.playlists}
+            self.search_index = None
 
     # ---------- lo que se manda a la web y a la TV ----------
 
-    def public(self):
-        """Todo lo de la música, sin rutas: {artists, albums, tracks, playlists}. Álbumes por artista y año."""
-        self.scan()
+    @staticmethod
+    def _track_pub(t):
+        return {"id": t["id"], "title": t["title"], "artist": t["artist"], "album": t["album"],
+                "album_id": t["album_id"], "n": t["n"], "disc": t["disc"], "duration": t["duration"],
+                "url": f"/music/{t['id']}/audio",
+                "format": "mp3" if t["codec"] == "mp3" else "aac" if t["codec"] == "aac" and
+                Path(t["path"]).suffix.lower() == ".aac" else "mp4",
+                "art": f"/music/art/{t['album_id']}.jpg"}
+
+    @staticmethod
+    def _album_pub(a):
+        return {"id": a["id"], "title": a["title"], "artist": a["artist"], "year": a["year"], "count": len(a["tracks"]),
+                "art": f"/music/art/{a['id']}.jpg", "added": int(a["added"])}
+
+    @staticmethod
+    def _artist_pub(ar):
+        return {"id": ar["id"], "name": ar["name"], "count": len(ar["albums"]), "art": f"/music/art/{ar['albums'][0]}.jpg"}
+
+    def _list_pub(self, pl):
+        return {"id": pl["id"], "title": pl["title"], "count": len(pl["tracks"]),
+                "art": f"/music/art/{self.tracks[pl['tracks'][0]]['album_id']}.jpg"}
+
+    def _pub(self, kind, ident):
+        if kind == "artists":
+            return self._artist_pub(self.artists[ident])
+        if kind == "albums":
+            return self._album_pub(self.albums[ident])
+        return self._list_pub(self.lists[ident])
+
+    def home(self):
+        """Lo de la sección Música, poco: tus listas, lo agregado hace poco (con sus canciones, para escucharlas ya),
+        la primera tanda de artistas y de álbumes, y cuántos hay de cada cosa (el resto, con more())."""
+        self.ensure()
         with self.lock:
-            albums = sorted(self.albums.values(), key=lambda a: (_key(a["artist"]), a["year"] or 9999, _key(a["title"])))
+            recent = []
+            for aid in self.order["recent"]:
+                recent += self.albums[aid]["tracks"][:HOME_ROW - len(recent)]
+                if len(recent) >= HOME_ROW:
+                    break
+            return {"counts": {"artists": len(self.artists), "albums": len(self.albums), "tracks": len(self.tracks),
+                               "playlists": len(self.playlists)},
+                    "reading": self.scanning and not self.tracks,
+                    "playlists": [self._pub("playlists", i) for i in self.order["playlists"][:HOME_ROW]],
+                    "recent": [self._track_pub(self.tracks[t]) for t in recent],
+                    "artists": [self._pub("artists", i) for i in self.order["artists"][:PAGE]],
+                    "albums": [self._pub("albums", i) for i in self.order["albums"][:PAGE]]}
+
+    def more(self, kind, offset=0, limit=PAGE):
+        """Otra tanda de artistas, álbumes o listas (en el orden de la sección). -> {items, total, offset} o None."""
+        if kind not in ("artists", "albums", "playlists"):
+            return None
+        self.ensure()
+        offset, limit = max(0, int(offset or 0)), min(max(1, int(limit or PAGE)), PAGE_MAX)
+        with self.lock:
+            ids = self.order[kind]
+            return {"items": [self._pub(kind, i) for i in ids[offset:offset + limit]], "total": len(ids), "offset": offset}
+
+    def collection(self, kind, ident):
+        """Las canciones (ids, en orden) de un álbum, un artista o una lista; None si no existe."""
+        with self.lock:
+            return self._collection(kind, ident)
+
+    def _collection(self, kind, ident):
+        if kind == "album":
+            a = self.albums.get(ident)
+            return list(a["tracks"]) if a else None
+        if kind == "artist":
+            ar = self.artists.get(ident)
+            return [t for aid in ar["albums"] for t in self.albums[aid]["tracks"]] if ar else None
+        if kind == "list":
+            pl = self.lists.get(ident)
+            return list(pl["tracks"]) if pl else None
+        return None
+
+    def page(self, kind, ident, offset=0, limit=TRACKS_PAGE):
+        """La página de un álbum, un artista o una lista: sus datos y una tanda de canciones (las demás con offset).
+        -> {kind, id, title, sub, year, art, total, duration, offset, tracks, albums (de un artista)} o None."""
+        self.ensure()
+        offset, limit = max(0, int(offset or 0)), min(max(1, int(limit or TRACKS_PAGE)), TRACKS_MAX)
+        with self.lock:
+            ids = self._collection(kind, ident)
+            if ids is None:
+                return None
+            out = {"kind": kind, "id": ident, "total": len(ids), "offset": offset,
+                   "duration": round(sum(self.tracks[t]["duration"] for t in ids)),
+                   "tracks": [self._track_pub(self.tracks[t]) for t in ids[offset:offset + limit]]}
+            if kind == "album":
+                a = self.albums[ident]
+                out.update(title=a["title"], artist=a["artist"], year=a["year"], genre=a["genre"],
+                           art=f"/music/art/{ident}.jpg")
+            elif kind == "artist":
+                ar = self.artists[ident]
+                out.update(title=ar["name"], art=f"/music/art/{ar['albums'][0]}.jpg",
+                           albums=[self._album_pub(self.albums[aid]) for aid in ar["albums"][:TRACKS_MAX]],
+                           album_count=len(ar["albums"]))
+            else:
+                pl = self.lists[ident]
+                out.update(title=pl["title"], art=f"/music/art/{self.tracks[pl['tracks'][0]]['album_id']}.jpg")
+            return out
+
+    def mix(self, kind, ident, index=0, shuffle=False, size=MIX_MAX):
+        """Para escuchar algo grande de seguido: hasta `size` canciones desde la `index` (y unas antes, para
+        «anterior»), o esa primero y las demás al azar. -> {tracks, index, total} o None."""
+        self.ensure()
+        with self.lock:
+            ids = self._collection(kind, ident)
+            if not ids:
+                return None
+            chosen, index, total = self._pick(ids, index, shuffle, size)
+            return {"tracks": [self._track_pub(self.tracks[t]) for t in chosen], "index": index, "total": total}
+
+    @staticmethod
+    def _pick(ids, index, shuffle, size):
+        n = len(ids)
+        index = min(max(int(index or 0), 0), n - 1)
+        if shuffle:
+            rest = ids[:index] + ids[index + 1:]
+            return [ids[index]] + random.sample(rest, min(len(rest), size - 1)), 0, n
+        lo, hi = _window(n, index, size)
+        return ids[lo:hi], index - lo, n
+
+    def pick(self, kind, ident, index=0, shuffle=False, size=MIX_MAX):
+        """Como mix(), solo los ids: (ids, index) o None (para «Escuchar en la TV» y «A la fila»)."""
+        ids = self.collection(kind, ident)
+        if not ids:
+            return None
+        got = self._pick(ids, index, shuffle, size)
+        return got[0], got[1]
+
+    def tracks_pub(self, ids):
+        """Las canciones con esos ids (las que existan, en ese orden), listas para sonar."""
+        self.ensure()
+        with self.lock:
+            return [self._track_pub(self.tracks[t]) for t in ids if t in self.tracks]
+
+    def search(self, q, limit=SEARCH_MAX):
+        """Artistas, álbumes, listas y canciones cuyo nombre tenga todas las palabras de `q` (sin acentos)."""
+        words = _plain(q).split()
+        if not words:
+            return {"artists": [], "albums": [], "playlists": [], "tracks": []}
+        self.ensure()
+        limit = min(max(1, int(limit or SEARCH_MAX)), PAGE_MAX)
+        with self.lock:
+            if self.search_index is None:
+                idx = {"artists": [(_plain(self.artists[i]["name"]), i) for i in self.order["artists"]],
+                       "albums": [(_plain(self.albums[i]["title"] + " " + self.albums[i]["artist"]), i)
+                                  for i in self.order["albums"]],
+                       "playlists": [(_plain(p["title"]), p["id"]) for p in self.playlists]}
+                idx["tracks"] = [(_plain(t["title"] + " " + t["artist"]), tid) for aid in self.order["albums"]
+                                 for tid in self.albums[aid]["tracks"] for t in [self.tracks[tid]]]
+                self.search_index = idx
+            out = {}
+            for kind, rows in self.search_index.items():
+                hits = []
+                for text, ident in rows:
+                    if all(w in text for w in words):
+                        hits.append(ident)
+                        if len(hits) >= limit:
+                            break
+                out[kind] = [self._track_pub(self.tracks[i]) for i in hits] if kind == "tracks" else \
+                    [self._pub(kind, i) for i in hits]
+            return out
+
+    def public(self):
+        """Todo lo de la música, sin rutas: {artists, albums, tracks, playlists}. Álbumes por artista y año.
+        Solo para las apps de antes de que la música se mandara por partes: con mucha música pesa decenas de MB."""
+        self.ensure()
+        with self.lock:
             return {
-                "artists": sorted(({"id": ar["id"], "name": ar["name"], "albums": ar["albums"],
-                                    "art": f"/music/art/{ar['albums'][0]}.jpg"} for ar in self.artists.values()),
-                                  key=lambda ar: _key(ar["name"])),
+                "artists": [{"id": ar["id"], "name": ar["name"], "albums": ar["albums"],
+                             "art": f"/music/art/{ar['albums'][0]}.jpg"} for ar in map(self.artists.get, self.order["artists"])],
                 "albums": [{"id": a["id"], "title": a["title"], "artist": a["artist"], "year": a["year"],
                             "genre": a["genre"], "tracks": a["tracks"], "duration": a["duration"],
-                            "art": f"/music/art/{a['id']}.jpg", "added": int(a["added"])} for a in albums],
-                "tracks": {t["id"]: {"id": t["id"], "title": t["title"], "artist": t["artist"], "album": t["album"],
-                                     "album_id": t["album_id"], "n": t["n"], "disc": t["disc"],
-                                     "duration": t["duration"], "url": f"/music/{t['id']}/audio",
-                                     "format": "mp3" if t["codec"] == "mp3" else "aac" if t["codec"] == "aac" and
-                                     Path(t["path"]).suffix.lower() == ".aac" else "mp4",
-                                     "art": f"/music/art/{t['album_id']}.jpg"} for t in self.tracks.values()},
+                            "art": f"/music/art/{a['id']}.jpg", "added": int(a["added"])}
+                           for a in map(self.albums.get, self.order["albums"])],
+                "tracks": {t["id"]: self._track_pub(t) for t in self.tracks.values()},
                 "playlists": [{"id": p["id"], "title": p["title"], "tracks": p["tracks"],
                                "art": f"/music/art/{self.tracks[p['tracks'][0]]['album_id']}.jpg"} for p in self.playlists],
             }

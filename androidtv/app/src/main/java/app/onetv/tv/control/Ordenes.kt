@@ -182,6 +182,21 @@ class Control(private val e: Estado, private val nombre: String, private val ver
         }
     }
 
+    /** Se pasó a otra computadora: adiós a la anterior (ya no ofrece esta TV) y las órdenes, desde la nueva. */
+    fun reiniciar(anterior: String) {
+        val seguia = trabajo != null
+        trabajo?.cancel()
+        trabajo = null
+        revisada = ""
+        if (anterior.isNotBlank()) e.scope.launch {
+            try {
+                e.api.post("$anterior/api/tv/adios", JSONObject().put("device_id", e.deviceId), 3000)
+            } catch (_: Exception) {
+            }
+        }
+        if (seguia) empezar()
+    }
+
     fun ejecutar(o: Orden) {
         val r = e.reproductor
         when (o) {

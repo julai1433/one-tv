@@ -32,9 +32,10 @@ la persona a tocar un archivo o a entender un concepto, rediseña la función, n
 | `mac/dubbing.py`, `dubsync.py`, `intro.py`, `introsync.py` | Doblaje latino automático y «Saltar intro» |
 | `mac/roku.py` | Hablar con el Roku (encontrarlo, instalar la app, control remoto) |
 | `mac/teles.py`, `mac/apptv.py` | Las TV con Android (sus órdenes y a cuál TV se manda) y su app para «Downloader» en `/tv` |
-| `mac/hostos.py`, `encoders.py`, `linuxservice.py`, `windowsservice.py`, `winapi.py` | Lo que cambia según el sistema (macOS, Linux, Windows): carpetas, codificador de video, arranque automático |
-| `cine`, `cine.cmd`, `windows/` | Arrancar: `./cine` en macOS y Linux; `cine.cmd` (doble clic) y `windows/cine.ps1` en Windows, más su instalador |
-| `mac/web/` | La web (`index.html` y sus letras, íconos y `hls.min.js`) |
+| `mac/hostos.py`, `encoders.py`, `linuxservice.py`, `windowsservice.py`, `winapi.py`, `winfirewall.py` | Lo que cambia según el sistema (macOS, Linux, Windows): carpetas, codificador de video, arranque automático, la regla del firewall de Windows |
+| `instalar.sh`, `Instalar One TV.*`, `windows/instalar.ps1` | Instalar o poner al día en un paso (ver [docs/instalar-un-paso.md](docs/instalar-un-paso.md)); terminan con `cine instalador` |
+| `cine`, `cine.cmd`, `windows/` | Arrancar: `./cine` en macOS y Linux; `cine.cmd` (doble clic) y `windows/cine.ps1` en Windows |
+| `mac/web/` | La web (`index.html` y sus letras, íconos y `hls.min.js`; `bienvenida.html`, el asistente del primer arranque, con lo suyo del servidor en `mac/asistente.py`) |
 | `roku/` | La app de la TV (`components/` pantallas y piezas, `source/` arranque, `fonts/`, `images/`) |
 | `androidtv/` | La app para Google TV, Android TV y Fire TV (`Estado.kt` teclas y estado, `ui/` pantallas, `control/` órdenes de la computadora); ver su `LEEME.md` |
 | `menubar/` | El ícono de la barra de menú de macOS (SwiftUI) |

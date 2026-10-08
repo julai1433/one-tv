@@ -65,7 +65,8 @@ data class Tarjeta(
 /** Fila vacía que enseña (DESIGN.md, pieza 4): frase de marquesina, la causa y, si se puede, una acción. */
 data class Vacio(val phrase: String, val cause: String, val action: String = "", val actionId: String = "")
 
-data class Fila(val title: String, val forma: Forma, val tarjetas: List<Tarjeta>, val vacio: Vacio? = null)
+data class Fila(val title: String, val forma: Forma, val tarjetas: List<Tarjeta>, val vacio: Vacio? = null,
+                val mas: String = "")   // Música: qué tanda pedir al acercarse al final (artists, albums, playlists)
 
 data class Boton(val id: String, val text: String, val icon: String, val danger: Boolean = false)
 
@@ -133,6 +134,7 @@ class Datos(
     val music: Music?,
     val musicError: Boolean,
     val filtros: Map<String, String>,
+    val paginasMusica: Map<String, app.onetv.tv.data.MusicPage> = emptyMap(),
 ) {
     fun abs(path: String?): String? = when {
         path.isNullOrEmpty() -> null
@@ -439,25 +441,21 @@ class Datos(
     }
 
     // ---------- Música ----------
+    // Llega por partes (Musica.kt): lo de la sección y, al abrir un álbum, artista o lista, sus canciones por tandas.
 
-    /** Las canciones de cada fila de la sección (para saber qué sigue al elegir una). */
-    fun recientes(n: Int = 30): List<String> {
-        val m = music ?: return emptyList()
-        return m.albums.sortedByDescending { it.added }.flatMap { it.tracks }.take(n)
-    }
+    /** «Agregadas hace poco»: ya vienen con la sección (para saber qué sigue al elegir una). */
+    fun recientes(): List<app.onetv.tv.data.Song> = music?.recent.orEmpty()
 
-    fun songTile(ctx: String, i: Int, tid: String): Tarjeta? {
-        val t = music?.tracks?.get(tid) ?: return null
-        return Tarjeta("song:$ctx:$i", t.title, Estilo.VIDEO, abs(t.art), t.artist, dur = t.duration.toInt(),
+    fun songTile(ctx: String, i: Int, t: app.onetv.tv.data.Song): Tarjeta =
+        Tarjeta("song:$ctx:$i", t.title, Estilo.VIDEO, abs(t.art), t.artist, dur = t.duration.toInt(),
             info = t.title + "   ·   " + t.artist + "   ·   " + t.album + "   ·   " + OPCIONES, menu = true)
-    }
 
     fun musica(): VistaFilas {
         val m = music
         val filas = mutableListOf<Fila>()
         if (m == null || !m.ready) {
             val vacio = when {
-                m == null && !musicError -> Vacio("Leyendo tu música", "La computadora está revisando la carpeta de música.")
+                (m == null && !musicError) || m?.reading == true -> Vacio("Leyendo tu música", "La computadora está revisando la carpeta de música.")
                 musicError -> Vacio("Sin música todavía", "No se pudo leer: sin conexión con la computadora.")
                 else -> Vacio("Sin música todavía", "Pon tu música en la carpeta Música › Biblioteca de la computadora y aparece aquí sola, con sus portadas.")
             }
@@ -465,44 +463,40 @@ class Datos(
             return VistaFilas("musica", "Música", filas)
         }
         if (m.playlists.isNotEmpty()) filas += Fila("Tus listas", Forma.CUADRADO, m.playlists.map { p ->
-            val line = countText(p.tracks.size, "canción", "canciones")
+            val line = countText(p.count, "canción", "canciones")
             Tarjeta("mlist:" + p.id, p.title, Estilo.VIDEO, abs(p.art), line,
                 info = p.title + "   ·   " + line + "   ·   OK: ver sus canciones   ·   Reproducir: escucharla")
-        })
-        filas += Fila("Agregadas hace poco", Forma.CUADRADO, recientes().mapIndexedNotNull { i, tid -> songTile("recent", i, tid) })
+        }, mas = "playlists")
+        filas += Fila("Agregadas hace poco", Forma.CUADRADO, recientes().mapIndexed { i, t -> songTile("recent", i, t) })
         filas += Fila("Artistas", Forma.CANAL, m.artists.map { ar ->
             Tarjeta("artist:" + ar.id, ar.name, Estilo.CANAL, abs(ar.art), initials = initialsOf(ar.name),
-                info = ar.name + "   ·   " + countText(ar.albums.size, "álbum", "álbumes") + "   ·   OK: sus canciones")
-        })
+                info = ar.name + "   ·   " + countText(ar.count, "álbum", "álbumes") + "   ·   OK: sus canciones")
+        }, mas = "artists")
         filas += Fila("Álbumes", Forma.CUADRADO, m.albums.map { a ->
             var info = a.title + "   ·   " + a.artist
             if (a.year > 0) info += "   ·   " + a.year
             Tarjeta("album:" + a.id, a.title, Estilo.VIDEO, abs(a.art), a.artist, info = "$info   ·   OK: ver sus canciones   ·   Reproducir: escucharlo")
-        })
+        }, mas = "albums")
         return VistaFilas("musica", "Música", filas)
     }
 
-    fun musicaPaginaTracks(p: Pagina.MusicaPagina): List<String> {
-        val m = music ?: return emptyList()
-        return when (p.sub) {
-            "album" -> m.albums.firstOrNull { it.id == p.id }?.tracks.orEmpty()
-            "list" -> m.playlists.firstOrNull { it.id == p.id }?.tracks.orEmpty()
-            "artist" -> m.artists.firstOrNull { it.id == p.id }?.albums.orEmpty().flatMap { aid -> m.albums.firstOrNull { it.id == aid }?.tracks.orEmpty() }
-            else -> emptyList()
-        }
-    }
-
     fun musicaPagina(p: Pagina.MusicaPagina): VistaCuadricula {
-        val ids = musicaPaginaTracks(p)
-        return VistaCuadricula("musica:${p.sub}:${p.id}", p.title, countText(ids.size, "canción", "canciones"), Forma.GRID_CUADRADO,
-            ids.mapIndexedNotNull { i, tid -> songTile("page", i, tid) },
-            Vacio("Sin canciones", "Se movieron o se borraron de la carpeta de música."),
+        val pg = paginasMusica["${p.sub}:${p.id}"]
+        val vacio = when (pg?.error) {
+            null -> Vacio("Leyendo tu música", "Un momento.")
+            "conexion" -> Vacio("Sin canciones", "No se pudo leer: sin conexión con la computadora.")
+            else -> Vacio("Sin canciones", "Se movieron o se borraron de la carpeta de música.")
+        }
+        val songs = pg?.songs.orEmpty()
+        return VistaCuadricula("musica:${p.sub}:${p.id}", p.title.ifEmpty { pg?.title.orEmpty() },
+            if (pg == null || pg.error.isNotEmpty()) "" else countText(pg.total, "canción", "canciones"), Forma.GRID_CUADRADO,
+            songs.mapIndexed { i, t -> songTile("page", i, t) }, vacio,
             listOf(Boton("m-play", "Escuchar", "play"), Boton("m-shuffle", "Aleatorio", "shuffle")), chipsSegmentos = false)
     }
 
     // ---------- Fila de reproducción, historial y ajustes generales ----------
 
-    fun fila(hidden: List<Silenciado>?): VistaFilas {
+    fun fila(hidden: List<Silenciado>?, computadora: String = ""): VistaFilas {
         val filas = mutableListOf<Fila>()
         val q = lib.queue
         val title = if (q.isEmpty()) "En espera" else "En espera   ·   " + countText(q.size, "video", "videos")
@@ -521,11 +515,14 @@ class Datos(
             Tarjeta(id, h.title, Estilo.VIDEO, abs(h.thumb), sub, progress, spanish = lib.items[h.id]?.dub == true,
                 dur = if (h.kind == "yt") h.duration.toInt() else 0, info = h.title + "   ·   " + sub + "   ·   " + OPCIONES, menu = true)
         }.take(30), Vacio("Todavía no has visto nada", "Lo que veas aquí se anota con el día y la hora."))
-        // Ajustes generales: dos segmentos para «Al terminar la fila» y «Mostrar el nombre del capítulo», y botones
-        // para los canales silenciados de YouTube y para buscar lo nuevo.
+        // Ajustes generales: la computadora conectada («Cambiar»), dos segmentos para «Al terminar la fila» y «Mostrar el
+        // nombre del capítulo», y botones para los canales silenciados de YouTube y para buscar lo nuevo.
         val autoplay = ytAutoplayOn(lib.prefs)
         val names = chapterTitlesOn(lib.prefs)
         filas += Fila("Ajustes generales", Forma.AJUSTE, listOf(
+            Tarjeta("set:computadora", "Computadora: " + computadora.ifEmpty { server.removePrefix("http://") }, Estilo.AJUSTE,
+                ajuste = Ajuste(emptyList(), 0, "Cambiar", "laptop"),
+                info = "OK: buscar las computadoras con One TV de la casa y elegir otra, o escribir su dirección."),
             Tarjeta("set:autoplay", "Al terminar la fila", Estilo.AJUSTE,
                 ajuste = Ajuste(listOf("Detenerse", "Seguir con recomendados"), if (autoplay) 1 else 0),
                 info = if (autoplay) "OK: cambiar   ·   Al acabar la fila siguen videos recomendados por YouTube, uno tras otro."

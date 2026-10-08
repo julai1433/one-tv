@@ -1,0 +1,60 @@
+#!/bin/bash
+# Lo que hace Instalar-One-TV-Mac.pkg al pulsar «Instalar» (lo arma herramientas/armar_instaladores.sh): baja el
+# instalador de un paso (instalar.sh, siempre el más nuevo) y lo corre con tu usuario, igual que pegar en la Terminal
+#   curl -fsSL https://raw.githubusercontent.com/julai1433/one-tv/main/instalar.sh | bash
+# Deja One TV en la carpeta «One TV» de tu usuario, arrancando solo con la Mac, y abre el navegador en la bienvenida.
+# Lo que dice queda en ~/Library/Logs/One TV - instalador.log; si algo falla, lo muestra en una ventana.
+#
+# El paquete se instala «solo para ti» (sin contraseña): el instalador de macOS corre esto con tu usuario y dentro de
+# tu sesión. Si alguna vez corre como administrador (root), se cambia a la persona que tiene la sesión abierta.
+# Para probarlo (pruebas/test_instaladores.py): ONE_TV_INSTALADOR (otro instalar.sh: una dirección o file://),
+# ONE_TV_CASA (otra carpeta de usuario) y ONE_TV_SIN_VENTANAS=1 (el error se escribe en vez de mostrarse en una ventana).
+
+INSTALADOR="${ONE_TV_INSTALADOR:-https://raw.githubusercontent.com/julai1433/one-tv/main/instalar.sh}"
+
+instalar() {
+  local casa registro guion codigo motivo
+  export PATH="/usr/bin:/bin:/usr/sbin:/sbin" LANG="${LANG:-en_US.UTF-8}"
+  casa="${ONE_TV_CASA:-$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{ print $2 }')}"
+  export HOME="${casa:-$HOME}"
+  mkdir -p "$HOME/Library/Logs"
+  registro="$HOME/Library/Logs/One TV - instalador.log"
+  guion="$(mktemp "${TMPDIR:-/tmp}/one-tv-instalar.XXXXXX")" || return 1
+  {
+    echo "One TV: instalador de la Mac, $(date)"
+    if curl -fsSL --retry 3 --connect-timeout 30 "$INSTALADOR" -o "$guion"; then
+      (cd "$HOME" && bash "$guion" </dev/null)
+    else
+      echo "✗ No pude bajar el instalador de One TV. ¿Hay internet? Vuelve a abrir este instalador."
+      false
+    fi
+  } >"$registro" 2>&1
+  codigo=$?
+  rm -f "$guion"
+  if [ "$codigo" != 0 ]; then
+    motivo="$(grep '^✗' "$registro" | head -n 3 | sed 's/^✗ //')"
+    [ -n "$motivo" ] || motivo="Algo salió mal."
+    if [ "${ONE_TV_SIN_VENTANAS:-}" = 1 ]; then
+      printf 'One TV no se pudo instalar: %s\n(%s)\n' "$motivo" "$registro" >&2
+    else
+      osascript - "$motivo" "$registro" >/dev/null 2>&1 <<'VENTANA'
+on run argv
+  set texto to "One TV no se pudo instalar:" & return & return & item 1 of argv & return & return
+  display dialog (texto & "Lo que pasó quedó en " & item 2 of argv) buttons {"Aceptar"} default button 1 with title "One TV" with icon caution
+end run
+VENTANA
+    fi
+  fi
+  return "$codigo"
+}
+
+if [ "$(id -u)" = 0 ]; then   # como administrador: con la persona que tiene la sesión abierta, dentro de su sesión
+  usuario="$(stat -f %Su /dev/console)"
+  if [ -z "$usuario" ] || [ "$usuario" = root ]; then
+    echo "One TV se instala con la sesión de una persona abierta." >&2
+    exit 1
+  fi
+  exec launchctl asuser "$(id -u "$usuario")" sudo -u "$usuario" -H /usr/bin/env ONE_TV_INSTALADOR="$INSTALADOR" \
+    /bin/bash -c "$(declare -f instalar); INSTALADOR=\"\$ONE_TV_INSTALADOR\"; instalar"
+fi
+instalar

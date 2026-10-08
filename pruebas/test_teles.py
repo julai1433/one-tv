@@ -2,7 +2,7 @@
 # app que se instala con «Downloader» (mac/apptv.py): la cola de órdenes, la consulta que espera, a qué TV se manda, las
 # rutas del servidor y la app que se ofrece en /tv. Sin red ni TV.
 # Uso: python3 -m unittest discover -s pruebas -p 'test_teles.py'
-import io, json, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
+import io, json, os, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
 from pathlib import Path
 from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mac"))
@@ -314,6 +314,55 @@ class LaComputadoraManda(unittest.TestCase):
         post("/api/tv/adios", {"device_id": "androidtv-9"})
         self.assertEqual(self.app.teles.android(), [])
 
+    def test_estado_de_la_tv_para_la_web(self):
+        self.assertEqual(self.app.status()["tele"], {"estado": "ok", "nombre": "Roku de prueba"})
+        self.app.roku = None   # sin Roku ni TV con Android: «Sin TV» (no «No responde»)
+        self.assertEqual(self.app.status()["tele"], {"estado": "sin"})
+        self.assertEqual(self.app.cast("peli")["error"], "No hay ninguna TV conectada: abre One TV en la TV y prueba otra vez.")
+        self.conectar()
+        self.assertEqual(self.app.status()["tele"], {"estado": "ok", "nombre": "Sala"})
+        self.app.teles.adios("androidtv-1")
+        self.assertEqual(self.app.status()["tele"], {"estado": "sin"})
+        self.app.cfg["roku_ip"] = "192.0.2.10"   # un Roku anotado que no aparece: ese sí «no responde»
+        self.assertEqual(self.app.status()["tele"], {"estado": "off", "nombre": "Roku"})
+
+    def test_nombre_de_la_computadora(self):
+        nombre = self.app.status()["nombre"]
+        self.assertTrue(nombre)
+        self.assertFalse(nombre.endswith(".local"))
+        self.app.cfg["nombre"] = "  Sala de cine  "   # config.json o, en el contenedor, la variable NOMBRE
+        self.assertEqual(self.app.status()["nombre"], "Sala de cine")
+
+
+@unittest.skipIf(sys.platform == "win32" or not hasattr(os, "geteuid") or os.geteuid() == 0,
+                 "los permisos de carpeta se prueban en macOS y Linux, sin ser root")
+class CarpetaSinPermiso(unittest.TestCase):
+    """Una carpeta de videos o de música que One TV no puede leer: el estado (y la biblioteca) dicen cuál y qué hacer."""
+
+    def test_dice_que_carpeta_no_se_puede_leer(self):
+        from library import Library
+        with tempfile.TemporaryDirectory() as t:
+            videos, musica = Path(t, "videos"), Path(t, "musica")
+            videos.mkdir()
+            musica.mkdir()
+            app = Falso(t)
+            app.library = Library([str(videos)], Path(t, "cache"))
+            app.music = mock.Mock(roots=[musica])
+            app.library.scan(force=True)
+            self.assertEqual(app.status()["sin_permiso"], [])
+            videos.chmod(0o000)
+            musica.chmod(0o000)
+            try:
+                app.library.scan(force=True)
+                st = app.status()
+            finally:
+                videos.chmod(0o755)
+                musica.chmod(0o755)
+            self.assertEqual([(x["carpeta"], x["tipo"]) for x in st["sin_permiso"]],
+                             [(str(videos.resolve()), "videos"), (str(musica), "música")])
+            self.assertTrue(all(x["que_hacer"] for x in st["sin_permiso"]))
+            self.assertIn("no tengo permiso para leer", app.library.warnings[0])
+
 
 def apk_falso():
     buf = io.BytesIO()
@@ -387,6 +436,31 @@ class AppParaDownloader(unittest.TestCase):
         with self.assertRaises(ValueError):
             a.actualizar()
         self.assertIsNone(a.actual())
+
+    def test_sin_conexion_lo_dice_en_llano_y_reintenta_en_una_hora(self):
+        # Windows sin internet: «[WinError 10060] A connection attempt failed…» no le dice nada a nadie.
+        import socket
+        import urllib.error
+        import apptv
+        avisos = []
+
+        def sin_red(req, timeout=0):
+            raise urllib.error.URLError(socket.timeout("[WinError 10060] A connection attempt failed"))
+
+        a = AppTv(self.dir / "cache", None, abrir=sin_red, log=avisos.append)
+        self.assertEqual(a.revisar(), apptv.REINTENTO)
+        self.assertEqual(apptv.REINTENTO, 3600)
+        self.assertEqual(avisos, ["⚠ App para Google TV: sin conexión con GitHub; se reintenta en una hora."])
+        self.assertIsNone(a.actual_o_buscar())
+        self.assertNotIn("WinError", avisos[-1])
+        self.assertIn("sin conexión con GitHub", avisos[-1])
+        b = AppTv(self.dir / "otra", None, abrir=self.abrir([self.version("tv-0.1.7")], b"<html>error</html>"),
+                  log=avisos.append)
+        self.assertEqual(b.revisar(), apptv.REINTENTO)
+        self.assertIn("lo que bajó de GitHub no es una app", avisos[-1])
+        c = AppTv(self.dir / "tercera", None, abrir=self.abrir([self.version("tv-0.1.7")], apk_falso()),
+                  log=avisos.append)
+        self.assertEqual(c.revisar(), apptv.CADA)   # salió bien: la siguiente, mañana
 
     def test_la_compilada_aqui_gana(self):
         d = self.dir / "release"

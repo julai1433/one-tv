@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="60" viewBox="0 0 300 60" role="img" aria-label="Descargar One TV">
+  <rect width="300" height="60" rx="3" fill="#A6E22E"/>
+  <g fill="none" stroke="#0A0F00" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" transform="translate(28 18)">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+  </g>
+  <text x="66" y="38" font-family="Archivo, Helvetica, Arial, sans-serif" font-size="21" font-weight="700" fill="#0A0F00">Descargar One TV</text>
+</svg>

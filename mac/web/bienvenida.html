@@ -1,0 +1,873 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bienvenida · One TV</title>
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="preload" href="/fonts/Archivo-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/Archivo-Bold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/BigShouldersDisplay-ExtraBold.woff2" as="font" type="font/woff2" crossorigin>
+<!--
+  El asistente del primer arranque (/bienvenida): tus videos, tu TV, extras y listo. Lo que hace en el servidor está en
+  mac/asistente.py (rutas /api/asistente/…, y quién puede usarlo). La página principal («/») manda aquí mientras
+  config.json diga "bienvenida_hecha": false (así lo deja el instalador); al llegar a «Listo» se guarda con
+  POST /api/bienvenida {"hecha": true}. Desde Ajustes generales de la web se vuelve a abrir.
+  Colores y letras: los mismos tokens de DESIGN.md que mac/web/index.html (ni un color fuera del bloque :root).
+-->
+<style>
+  :root {
+    --bg: #000000;               /* fondo de todo */
+    --raise-1: #0C0C0C;          /* la barra de abajo */
+    --raise-2: #161616;          /* tarjetas */
+    --raise-3: #222222;          /* avisos que esperan, pista de la barra de avance */
+    --line: #2E2E2E;             /* líneas finas que solo separan */
+    --edge: #5E5E58;             /* bordes de lo que se toca */
+    --edge-panel: #686862;       /* lo mismo sobre una tarjeta raise-2 */
+    --text: #F2F2EE;             /* texto principal */
+    --text-soft: #C9C9C2;        /* texto de apoyo */
+    --muted: #8C8C85;            /* ayudas */
+    --lime: #A6E22E;             /* foco, botón principal, lo elegido, estado bueno */
+    --on-lime: #0A0F00;          /* letra e íconos sobre limón */
+    --guinda: #7A1535;
+    --guinda-claro: #E0507F;     /* problemas */
+    --es-text: #C4F05A;
+    --es-line: #C4F05A;
+    --scrim: rgba(0, 0, 0, .72); /* velo detrás del explorador de carpetas */
+    color-scheme: dark;
+  }
+  /* Letras (licencia OFL, en /fonts): Big Shoulders Display para la marquesina, Archivo para todo lo demás. */
+  @font-face { font-family: "Archivo"; src: url("/fonts/Archivo-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+  @font-face { font-family: "Archivo"; src: url("/fonts/Archivo-Medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+  @font-face { font-family: "Archivo"; src: url("/fonts/Archivo-Bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+  @font-face { font-family: "Big Shoulders Display"; src: url("/fonts/BigShouldersDisplay-ExtraBold.woff2") format("woff2"); font-weight: 800; font-display: swap; }
+  @font-face { font-family: "Big Shoulders Display"; src: url("/fonts/BigShouldersDisplay-Black.woff2") format("woff2"); font-weight: 900; font-display: swap; }
+  @font-face { font-family: "Archivo medidas"; src: local("Arial"), local("ArialMT"); size-adjust: 97.9%; ascent-override: 89.9%; descent-override: 21.5%; line-gap-override: 0%; }
+  @font-face { font-family: "Marquesina medidas"; src: local("Arial Narrow Bold"), local("ArialNarrow-Bold"); size-adjust: 83.7%; ascent-override: 117%; descent-override: 25%; line-gap-override: 0%; }
+  :root {
+    --font: "Archivo", "Archivo medidas", sans-serif;
+    --font-display: "Big Shoulders Display", "Marquesina medidas", "Archivo", sans-serif;
+    --pad: 16px;
+  }
+  @media (min-width: 860px) { :root { --pad: 40px; } }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); overflow-x: hidden;
+         font: 400 16px/1.45 var(--font); letter-spacing: .005em; font-synthesis: none;
+         -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; -webkit-tap-highlight-color: transparent; }
+  button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+  button { cursor: pointer; }
+  a { color: inherit; }
+  [hidden] { display: none !important; }
+  ::selection { background: var(--lime); color: var(--on-lime); }
+  input { caret-color: var(--lime); }
+  :focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+  :focus:not(:focus-visible) { outline: none; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .i { width: 1.25em; height: 1.25em; vertical-align: -0.25em; flex: none; fill: none; stroke: currentColor;
+       stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---------- arriba: la marca y los pasos ---------- */
+  .top { display: flex; align-items: center; gap: 16px; padding: 14px var(--pad); border-bottom: 1px solid var(--line);
+         padding-top: calc(14px + env(safe-area-inset-top)); }
+  .logo { display: flex; align-items: center; gap: 10px; font: 900 24px/1 var(--font-display); text-transform: uppercase;
+          letter-spacing: -0.01em; white-space: nowrap; }
+  .logo svg { width: 30px; height: 30px; flex: none; }
+  .logo rect { fill: var(--lime); } .logo path { fill: var(--on-lime); }
+  .pasos { display: flex; gap: 6px; margin-left: auto; }
+  .paso { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); padding: 6px 10px;
+          border: 1px solid var(--line); border-radius: 2px; white-space: nowrap; }
+  .paso .i { width: 14px; height: 14px; color: var(--lime); }
+  .paso.hecho { color: var(--text-soft); border-color: var(--edge); }
+  .paso.ahora { color: var(--on-lime); background: var(--lime); border-color: var(--lime); font-weight: 700; }
+  @media (max-width: 640px) {
+    .logo { font-size: 20px; } .logo svg { width: 26px; height: 26px; }
+    .paso { padding: 5px 8px; }
+    .paso:not(.ahora) .t { display: none; }
+  }
+
+  /* ---------- el contenido ---------- */
+  main { max-width: 760px; margin: 0 auto; padding: 40px var(--pad) 140px; }
+  h1 { font: 800 56px/1 var(--font-display); text-transform: uppercase; margin: 0 0 12px; letter-spacing: .005em; }
+  .lead { color: var(--text-soft); font-size: 19px; margin: 0 0 32px; max-width: 60ch; }
+  h1:focus { outline: none; }   /* recibe el foco al cambiar de paso (para lectores de pantalla), sin marco */
+  @media (max-width: 640px) { main { padding-top: 28px; } h1 { font-size: 42px; } .lead { font-size: 17px; margin-bottom: 24px; } }
+  h3 { margin: 0 0 4px; font-size: 18px; font-weight: 700; }
+  .card { background: var(--raise-2); border: 1px solid var(--line); border-radius: 2px; padding: 18px 20px; }
+  .card + .card { margin-top: 12px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font: 700 16px/1.2 var(--font);
+         padding: 13px 22px; min-height: 48px; border-radius: 2px; border: 1px solid var(--edge); background: none;
+         color: var(--text); text-decoration: none; }
+  .btn:hover { border-color: var(--text-soft); }
+  .btn.pri { background: var(--lime); color: var(--on-lime); border-color: var(--lime); }
+  .btn.chico { padding: 8px 14px; min-height: 40px; font-size: 14px; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .card .btn:not(.pri) { border-color: var(--edge-panel); }
+  .link { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 4px 0;
+          color: var(--text); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+  .ayuda-chica { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
+  .problema { color: var(--guinda-claro); font-weight: 500; }
+  .bien { color: var(--lime); font-weight: 700; }
+  .fila-btn { margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+  /* Barra de avance: limón sobre gris; sin saber cuánto falta, un tramo que va y viene. */
+  .prog { height: 6px; background: var(--raise-3); border-radius: 2px; overflow: hidden; margin-top: 14px; position: relative; }
+  .prog i { position: absolute; top: 0; bottom: 0; left: 0; width: 35%; background: var(--lime); animation: ir 1.3s ease-in-out infinite alternate; }
+  @keyframes ir { from { left: 0; } to { left: 65%; } }
+
+  /* ---------- 0. Bienvenida ---------- */
+  .pasos-bienvenida { display: grid; gap: 12px; margin: 0 0 36px; padding: 0; list-style: none; counter-reset: n; }
+  .pasos-bienvenida li { counter-increment: n; display: flex; gap: 16px; align-items: baseline; font-size: 19px; }
+  .pasos-bienvenida li::before { content: counter(n); font: 800 30px/1 var(--font-display); color: var(--lime); width: 24px; }
+  .pasos-bienvenida span { color: var(--muted); font-size: 15px; }
+
+  /* ---------- 1. Tus videos ---------- */
+  .carpeta { display: flex; gap: 16px; align-items: flex-start; cursor: pointer; }
+  .carpeta.sel { border-color: var(--lime); box-shadow: inset 0 0 0 1px var(--lime); }
+  .carpeta.mal { border-color: var(--guinda-claro); cursor: default; }
+  .carpeta input { position: absolute; opacity: 0; pointer-events: none; }
+  .check { width: 22px; height: 22px; border: 2px solid var(--edge-panel); border-radius: 2px; flex: none; margin-top: 2px;
+           display: grid; place-items: center; color: var(--on-lime); }
+  .check .i { width: 16px; height: 16px; stroke-width: 3; visibility: hidden; }
+  .sel .check { background: var(--lime); border-color: var(--lime); }
+  .sel .check .i { visibility: visible; }
+  .carpeta:has(input:focus-visible) { outline: 2px solid var(--lime); outline-offset: 2px; }
+  .carpeta .t { min-width: 0; flex: 1; }
+  .carpeta h3 { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; overflow-wrap: anywhere; }
+  .carpeta p { margin: 0; color: var(--text-soft); font-size: 15px; }
+  .carpeta p.problema { color: var(--guinda-claro); }
+  .ruta { color: var(--muted); font-size: 13px; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+         padding: 2px 8px; border-radius: 2px; border: 1px solid var(--text-soft); color: var(--text-soft); }
+  .nota { margin-top: 10px; font-size: 14px; color: var(--text-soft); border-left: 3px solid var(--lime); padding-left: 10px; }
+  .arreglo { margin-top: 10px; font-size: 14px; color: var(--text); border-left: 3px solid var(--guinda-claro); padding-left: 10px; }
+  .buscando { color: var(--text-soft); }
+
+  /* ---------- 2. Tu TV ---------- */
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .grid3 .card + .card { margin-top: 0; }
+  .opcion { text-align: left; display: flex; flex-direction: column; gap: 10px; min-height: 170px; color: var(--text); }
+  .opcion .i { width: 30px; height: 30px; }
+  .opcion p { margin: 0; color: var(--text-soft); font-size: 15px; }
+  .opcion[aria-pressed="true"] { border-color: var(--lime); box-shadow: inset 0 0 0 1px var(--lime); }
+  .opcion[aria-pressed="true"] .i { color: var(--lime); }
+  @media (max-width: 640px) {
+    .grid3 { grid-template-columns: 1fr; gap: 10px; }
+    .opcion { min-height: 0; display: grid; grid-template-columns: 30px 1fr; gap: 2px 14px; align-items: center; }
+    .opcion .i { grid-row: span 2; }
+    .opcion h3 { margin: 0; }
+  }
+  .instalar { margin-top: 20px; }
+  .pasos-n { counter-reset: n; margin: 16px 0 0; padding: 0; list-style: none; }
+  .pasos-n li { counter-increment: n; display: flex; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line); color: var(--text-soft); }
+  .pasos-n li::before { content: counter(n); flex: none; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--edge-panel);
+                        display: grid; place-items: center; font-weight: 700; color: var(--text); font-size: 14px; }
+  .pasos-n li > span { min-width: 0; overflow-wrap: anywhere; }
+  .teclas { font-weight: 700; color: var(--text); letter-spacing: .04em; }
+  .teclas span { white-space: nowrap; }
+  .clave { font: 800 34px/1 var(--font-display); color: var(--lime); letter-spacing: .12em; margin-left: 4px; vertical-align: -4px; white-space: nowrap; }
+  .direccion { display: block; font: 800 44px/1.05 var(--font-display); color: var(--lime); letter-spacing: .02em; margin: 8px 0 2px;
+               overflow-wrap: anywhere; }
+  @media (max-width: 640px) { .direccion { font-size: 34px; } }
+  .estado-tv { display: flex; align-items: center; gap: 12px; margin-top: 18px; padding: 14px 16px; border-radius: 2px; flex-wrap: wrap; }
+  .estado-tv .t { flex: 1; min-width: 180px; }
+  .estado-tv.espera { background: var(--raise-3); color: var(--text-soft); }
+  .estado-tv.ok { border: 1px solid var(--lime); color: var(--text); }
+  .estado-tv.ok .i { color: var(--lime); }
+  .estado-tv.mal { border: 1px solid var(--guinda-claro); color: var(--text); }
+  .estado-tv .sub { color: var(--text-soft); }
+  details.mas { margin-top: 14px; color: var(--text-soft); font-size: 14px; }
+  details.mas summary { cursor: pointer; color: var(--text); font-weight: 700; padding: 6px 0; }
+  details.mas ol { margin: 6px 0 0; padding-left: 20px; }
+  details.mas li + li { margin-top: 6px; }
+
+  /* ---------- 3. Extras ---------- */
+  .extra { border-top: 1px solid var(--line); padding: 16px 0; }
+  .extra:last-child { border-bottom: 1px solid var(--line); }
+  .extra-f { display: flex; align-items: center; gap: 16px; }
+  .extra-f > .i { width: 30px; height: 30px; color: var(--text-soft); }
+  .extra-f .t { flex: 1; min-width: 0; }
+  .extra h3 { margin: 0 0 2px; font-size: 17px; }
+  .extra p { margin: 0; color: var(--text-soft); font-size: 14px; overflow-wrap: anywhere; }
+  .extra .lado { display: flex; align-items: center; gap: 12px; flex: none; }
+  .estado { font-size: 14px; color: var(--lime); font-weight: 700; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+  .extra .detalle { margin: 14px 0 0 46px; font-size: 15px; color: var(--text-soft); }
+  .extra .detalle ol { margin: 0; padding-left: 20px; }
+  .extra .detalle li + li { margin-top: 6px; }
+  @media (max-width: 640px) {
+    .extra-f { flex-wrap: wrap; gap: 12px 14px; }
+    .extra-f .t { flex-basis: calc(100% - 50px); }
+    .extra .lado { margin-left: 44px; }
+    .extra .detalle { margin-left: 0; }
+  }
+  .campos { display: grid; gap: 12px; margin-top: 14px; max-width: 360px; }
+  .campo { display: grid; gap: 6px; }
+  .campo label { font-weight: 700; color: var(--text); font-size: 15px; }
+  .campo input { background: var(--bg); border: 1px solid var(--edge); padding: 12px 14px; font-size: 17px; border-radius: 2px;
+                 color: var(--text); width: 100%; }
+  .msg { margin: 10px 0 0; font-size: 14px; }
+  .extra p.problema, .extra .msg.problema { color: var(--guinda-claro); }
+  .extra p.bien { color: var(--lime); }
+
+  /* ---------- 4. Listo ---------- */
+  .listo { display: grid; grid-template-columns: 1fr 220px; gap: 32px; align-items: start; }
+  .qr { width: 220px; height: 220px; display: block; border: 1px solid var(--line); image-rendering: pixelated; }
+  .qr-t { color: var(--muted); font-size: 13px; text-align: center; margin: 8px 0 0; }
+  .resumen { list-style: none; margin: 0; padding: 0; }
+  .resumen li { padding: 10px 0; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
+  .resumen li .i { color: var(--lime); }
+  .telefono h3 { margin: 0 0 10px; font-size: 17px; }
+  .dir-tel { font: 800 30px/1.1 var(--font-display); color: var(--lime); overflow-wrap: anywhere; }
+  @media (max-width: 640px) { .listo { grid-template-columns: 1fr; } .solo-ancho { display: none !important; } }
+  @media (min-width: 641px) { .solo-telefono { display: none !important; } }
+
+  /* ---------- abajo: Atrás y Siguiente ---------- */
+  .barra { position: fixed; left: 0; right: 0; bottom: 0; background: var(--raise-1); border-top: 1px solid var(--line);
+           padding: 14px var(--pad) calc(14px + env(safe-area-inset-bottom)); display: flex; justify-content: space-between;
+           align-items: center; gap: 12px; z-index: 5; }
+  .barra .ayuda { color: var(--muted); font-size: 14px; min-width: 0; }
+  .barra .nav { display: flex; gap: 12px; flex: none; }
+  @media (max-width: 640px) {   /* en el teléfono los pasos ya se ven arriba: abajo, solo los botones */
+    .barra .ayuda { display: none; }
+    .barra .nav { flex: 1; } .barra .btn { padding: 12px 16px; } #sig { flex: 1; }
+  }
+
+  /* ---------- el explorador de carpetas ---------- */
+  .velo { position: fixed; inset: 0; background: var(--scrim); z-index: 20; display: grid; place-items: center; padding: 16px; }
+  .panel { width: 100%; max-width: 560px; max-height: min(640px, 100%); display: flex; flex-direction: column;
+           background: var(--raise-2); border: 1px solid var(--edge-panel); border-radius: 2px; }
+  .panel-h { display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 20px; border-bottom: 1px solid var(--line); }
+  .panel-h h2 { flex: 1; margin: 0; font-size: 18px; min-width: 0; overflow-wrap: anywhere; }
+  .icon-btn { width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: none; color: var(--text); border-radius: 2px; flex: none; }
+  .panel-donde { margin: 0; padding: 10px 20px 0; color: var(--muted); font-size: 13px; }
+  .lista { list-style: none; margin: 0; padding: 8px 0; overflow-y: auto; flex: 1; min-height: 120px; }
+  .lista button { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; padding: 12px 20px; border: 0;
+                  background: none; color: var(--text); min-height: 48px; }
+  .lista button:hover { background: var(--raise-3); }
+  .lista button .i:first-child { color: var(--text-soft); }
+  .lista .n { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .lista .d { color: var(--muted); font-size: 13px; }
+  .lista .vacia { padding: 12px 20px; color: var(--muted); }
+  .panel-pie { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .panel-pie .info { flex: 1; color: var(--text-soft); font-size: 14px; min-width: 140px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-tv" viewBox="0 0 24 24"><rect width="20" height="15" x="2" y="7" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></symbol>
+  <symbol id="i-cast" viewBox="0 0 24 24"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a9 9 0 0 1 8 8"/><path d="M2 16a5 5 0 0 1 4 4"/><line x1="2" y1="20" x2="2.01" y2="20"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+  <symbol id="i-square-play" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 9.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997A1 1 0 0 1 9 14.996z"/></symbol>
+  <symbol id="i-captions" viewBox="0 0 24 24"><rect width="18" height="14" x="3" y="5" rx="2" ry="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-hard-drive" viewBox="0 0 24 24"><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></symbol>
+  <symbol id="i-house" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-circle-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
+</svg>
+<header class="top">
+  <div class="logo"><svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="3"/><path transform="translate(16.91,76) scale(0.0325,-0.0325)" d="M168 0V1336H66L60 1442L232 1600H468V0Z"/><path d="M43.12 27L83.14 50L43.12 73Z"/></svg>One TV</div>
+  <nav class="pasos" id="pasos" aria-label="Pasos"></nav>
+</header>
+<main id="main" aria-live="polite"><p class="buscando">Cargando…</p></main>
+<footer class="barra" id="barra" hidden>
+  <span class="ayuda" id="ayuda"></span>
+  <span class="nav">
+    <button class="btn" type="button" id="atras"><svg class="i" aria-hidden="true"><use href="#i-back"/></svg>Atrás</button>
+    <button class="btn pri" type="button" id="sig">Siguiente<svg class="i" aria-hidden="true"><use href="#i-right"/></svg></button>
+  </span>
+</footer>
+<div class="velo" id="velo" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="exp-t">
+    <div class="panel-h">
+      <button class="icon-btn" type="button" id="exp-arriba" aria-label="Volver a la carpeta de arriba"><svg class="i" aria-hidden="true"><use href="#i-back"/></svg></button>
+      <h2 id="exp-t">Elige una carpeta</h2>
+      <button class="icon-btn" type="button" id="exp-cerrar" aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <p class="panel-donde" id="exp-donde"></p>
+    <ul class="lista" id="exp-lista"></ul>
+    <div class="panel-pie"><span class="info" id="exp-info"></span>
+      <button class="btn pri" type="button" id="exp-elegir">Elegir esta carpeta</button></div>
+  </div>
+</div>
+<script>
+"use strict";
+// ---------- piezas ----------
+const SVGNS = "http://www.w3.org/2000/svg";
+const $ = id => document.getElementById(id);
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "value") el.value = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false && kid !== "") el.append(kid.nodeType ? kid : String(kid));
+  return el;
+}
+function icon(name) {
+  const s = document.createElementNS(SVGNS, "svg");
+  s.setAttribute("class", "i");
+  s.setAttribute("aria-hidden", "true");
+  const u = document.createElementNS(SVGNS, "use");
+  u.setAttribute("href", "#i-" + name);
+  s.appendChild(u);
+  return s;
+}
+const num = n => Number(n || 0).toLocaleString("es-MX");
+const plural = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
+const SIN_RED = "No hay conexión con One TV. Revisa que la computadora donde está siga prendida.";
+async function getJSON(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  return r.json();
+}
+async function post(url, body) {
+  try {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+    return await r.json();
+  } catch (_) {
+    return { ok: false, error: SIN_RED };
+  }
+}
+
+// ---------- estado ----------
+const PASOS = ["Tus videos", "Tu TV", "Extras", "Listo"];
+const S = {
+  paso: 0, est: null, carpetas: null, buscando: false, elegidas: new Set(), guardadas: "", errorCarpetas: "",
+  tele: null, abierto: {}, msgs: {}, ocupado: {}, roku: null, hecha: false,
+};
+let timers = [];
+function parar() { timers.forEach(clearInterval); timers = []; }
+function cada(ms, fn) { timers.push(setInterval(fn, ms)); }
+
+function irA(paso) {
+  S.paso = Math.max(0, Math.min(4, paso));
+  if (location.hash !== "#paso=" + S.paso) history.replaceState(null, "", "#paso=" + S.paso);
+  render();
+  window.scrollTo(0, 0);
+  const t = document.querySelector("main h1");
+  if (t) { t.setAttribute("tabindex", "-1"); t.focus({ preventScroll: true }); }
+}
+
+async function cargarEstado() {
+  try {
+    S.est = await getJSON("/api/asistente/estado");
+  } catch (_) {
+    S.est = null;
+  }
+}
+
+// ---------- armazón: los pasos de arriba y la barra de abajo ----------
+function pintarPasos() {
+  const nav = $("pasos");
+  nav.replaceChildren();
+  if (!S.est || !S.est.permitido) return;
+  PASOS.forEach((n, i) => {
+    const p = i + 1;
+    const cls = p < S.paso ? "paso hecho" : p === S.paso ? "paso ahora" : "paso";
+    nav.append(h("span", { class: cls, "aria-current": p === S.paso ? "step" : null },
+      p < S.paso ? icon("check") : null, h("span", { class: "n" }, p + "."), h("span", { class: "t" }, " " + n)));
+  });
+}
+function pintarBarra() {
+  const barra = $("barra");
+  const ver = S.est && S.est.permitido && S.paso >= 1 && S.paso <= 3;
+  barra.hidden = !ver;
+  if (!ver) return;
+  $("ayuda").replaceChildren(`Paso ${S.paso} de 4`, h("span", { class: "largo" }, " · puedes volver a esto cuando quieras desde Ajustes"));
+}
+
+function render() {
+  parar();
+  const main = $("main");
+  main.replaceChildren();
+  pintarPasos();
+  pintarBarra();
+  if (!S.est) {
+    main.append(h("h1", null, "Bienvenido a One TV"), h("p", { class: "lead problema" }, SIN_RED),
+      h("button", { class: "btn pri", type: "button", onclick: inicio }, "Probar otra vez"));
+    return;
+  }
+  if (!S.est.permitido) return pintarBloqueado(main);
+  [pintarBienvenida, pintarVideos, pintarTele, pintarExtras, pintarListo][S.paso](main);
+}
+
+function pintarBloqueado(main) {
+  main.append(h("h1", null, "Ya está configurado"),
+    h("p", { class: "lead" }, "Por seguridad, el asistente solo se abre en la computadora donde está One TV."),
+    h("a", { class: "btn pri", href: "/" }, "Ir a One TV"));
+}
+
+// ---------- 0. Bienvenida ----------
+function pintarBienvenida(main) {
+  main.append(h("h1", null, "Bienvenido a One TV"),
+    h("p", { class: "lead" }, "Te ayudo a dejarlo listo en unos minutos."),
+    h("ol", { class: "pasos-bienvenida" }, h("li", null, "Tus videos"), h("li", null, "Tu TV"),
+      h("li", null, "Extras ", h("span", null, "· opcional")), h("li", null, "Listo")),
+    h("button", { class: "btn pri", type: "button", id: "empezar", onclick: () => irA(1) }, "Empezar", icon("right")));
+}
+
+// ---------- 1. Tus videos ----------
+function cuenta(c) {
+  const partes = [];
+  if (c.peliculas) partes.push(plural(c.peliculas, "película", "películas"));
+  if (c.series) partes.push(plural(c.series, "serie", "series"));
+  if (!partes.length) return c.mas ? "Muchos archivos: la reviso al guardar" : "Todavía no tiene videos. Lo que pongas aquí aparece en One TV.";
+  return (c.mas ? "Más de " : "") + partes.join(" y ");
+}
+async function buscarCarpetas() {
+  if (S.buscando) return;
+  S.buscando = true;
+  try {
+    const r = await getJSON("/api/asistente/carpetas");
+    if (!r.ok) throw new Error(r.error || "");
+    S.carpetas = r.carpetas;
+    S.elegidas = new Set(S.carpetas.filter(c => c.elegida && !c.sin_permiso).map(c => c.ruta));
+    S.guardadas = JSON.stringify(S.carpetas.filter(c => c.configurada).map(c => c.ruta));
+    S.errorCarpetas = "";
+  } catch (_) {
+    S.errorCarpetas = SIN_RED;
+  }
+  S.buscando = false;
+  if (S.paso === 1) render();
+}
+function pintarVideos(main) {
+  main.append(h("h1", null, "¿Dónde están tus videos?"));
+  if (!S.carpetas) {
+    main.append(h("p", { class: "lead" }, "Estoy buscando carpetas con videos en esta computadora…"),
+      S.errorCarpetas ? h("p", { class: "problema" }, S.errorCarpetas) : h("div", { class: "prog", role: "progressbar", "aria-label": "Buscando" }, h("i")));
+    buscarCarpetas();
+    return;
+  }
+  const encontradas = S.carpetas.some(c => !c.configurada && !c.agregada);
+  main.append(h("p", { class: "lead" }, encontradas ? "Encontré estas carpetas. Marca las que quieres ver en One TV."
+                                                    : "Aquí van tus películas y series. Si tienes videos en otra carpeta, agrégala."));
+  const lista = h("div", { id: "carpetas" });
+  S.carpetas.forEach((c, i) => lista.append(tarjetaCarpeta(c, i)));
+  main.append(lista,
+    h("div", { class: "fila-btn" }, h("button", { class: "btn", type: "button", id: "agregar", onclick: () => abrirExplorador("videos") }, icon("plus"), "Agregar otra carpeta")));
+  if (S.errorCarpetas) main.append(h("p", { class: "problema", role: "alert" }, S.errorCarpetas));
+}
+function tarjetaCarpeta(c, i) {
+  const sel = S.elegidas.has(c.ruta);
+  const id = "c" + i;
+  if (c.sin_permiso) {
+    const abierto = !!S.abierto[c.ruta];
+    return h("div", { class: "card carpeta mal" }, h("span", { class: "check" }),
+      h("div", { class: "t" }, h("h3", null, c.nombre),
+        h("p", { class: "problema" }, "No puedo abrir esta carpeta: no tengo permiso para leerla."),
+        h("div", { class: "ruta" }, c.donde),
+        abierto ? h("div", { class: "arreglo" }, c.arreglo) : null,
+        h("div", { class: "fila-btn", style: "margin-top: 10px" },
+          h("button", { class: "btn chico", type: "button", "aria-expanded": String(abierto),
+                        onclick: () => { S.abierto[c.ruta] = !abierto; render(); } }, "Cómo arreglarlo"),
+          abierto ? h("button", { class: "btn chico", type: "button", onclick: () => { S.carpetas = null; render(); } }, "Revisar otra vez") : null)));
+  }
+  const input = h("input", { type: "checkbox", id, checked: sel,
+    onchange: e => { e.target.checked ? S.elegidas.add(c.ruta) : S.elegidas.delete(c.ruta); S.errorCarpetas = ""; render();
+                     const again = $(id); if (again) again.focus({ preventScroll: true }); } });
+  let nota = null;
+  if (c.no_esta) nota = h("div", { class: "nota" }, "Ahora no la encuentro. Si está en un disco, conéctalo.");
+  else if (c.solo_lectura) nota = h("div", { class: "nota" }, c.motivo === "protegida" ? "One TV solo puede leerla: no cambia nada en ella."
+                                                                              : "Ya tiene sus videos acomodados: One TV solo la lee, no cambia nada en ella.");
+  return h("label", { class: "card carpeta" + (sel ? " sel" : ""), for: id }, input,
+    h("span", { class: "check" }, icon("check")),
+    h("div", { class: "t" },
+      h("h3", null, c.nombre, c.solo_lectura && !c.no_esta ? h("span", { class: "tag" }, "Solo lectura") : null),
+      h("p", null, c.no_esta ? "" : cuenta(c)),
+      h("div", { class: "ruta" }, c.donde), nota));
+}
+async function guardarCarpetas() {
+  const elegidas = S.carpetas.filter(c => S.elegidas.has(c.ruta)).map(c => c.ruta);
+  if (JSON.stringify(elegidas) === S.guardadas) return true;
+  if (!elegidas.length) { S.errorCarpetas = "Elige al menos una carpeta: ahí One TV busca tus películas y series."; render(); return false; }
+  $("sig").disabled = true;
+  const r = await post("/api/asistente/carpetas", { carpetas: elegidas });
+  $("sig").disabled = false;
+  if (!r.ok) { S.errorCarpetas = r.error || SIN_RED; render(); return false; }
+  S.guardadas = JSON.stringify(elegidas);
+  S.carpetas.forEach(c => { c.configurada = S.elegidas.has(c.ruta); });
+  return true;
+}
+
+// ---------- 2. Tu TV ----------
+const TELES = [
+  ["roku", "tv", "Roku"],
+  ["android", "cast", "Google TV, Android TV o Fire TV"],
+  ["ninguna", "phone", "Ninguna"],
+];
+function teleElegida() { return S.tele || S.est.tele || ""; }
+function pintarTele(main) {
+  const e = S.est;
+  const elegida = teleElegida();
+  main.append(h("h1", null, "¿Qué TV tienes?"),
+    h("p", { class: "lead" }, e.tele === "roku" ? "Encontré un Roku en tu casa. Si tienes otra, elígela."
+                            : e.tele === "android" ? "Tu TV ya está conectada. Si tienes otra, elígela." : "Elige la tuya."));
+  const textos = {
+    roku: e.roku.encontrado ? "Encontré uno en tu casa." : "Te digo cómo instalar la app.",
+    android: e.android.conectada ? `«${e.android.nombre}» ya está conectada.` : "Te digo cómo instalar la app.",
+    ninguna: "Solo en el teléfono y la computadora.",
+  };
+  main.append(h("div", { class: "grid3", role: "group", "aria-label": "Tu TV" }, TELES.map(([k, ic, nombre]) =>
+    h("button", { class: "card opcion", type: "button", id: "tv-" + k, "aria-pressed": String(elegida === k),
+                  onclick: () => { S.tele = k; render(); } }, icon(ic), h("h3", null, nombre), h("p", null, textos[k])))));
+  if (elegida === "roku") main.append(panelRoku());
+  else if (elegida === "android") main.append(panelAndroid());
+  else if (elegida === "ninguna") main.append(h("div", { class: "card instalar" },
+    h("p", { style: "margin: 0" }, "Listo: ves One TV en el navegador del teléfono y de la computadora. Si después tienes una TV, vuelve aquí desde Ajustes.")));
+  if (elegida && elegida !== "ninguna" && e.red_bloqueada) main.append(avisoRed());
+  // La TV con Android aparece sola en cuanto abre One TV; la entrada de Windows, en cuanto se permite.
+  cada(3000, async () => {
+    try {
+      const st = await getJSON("/api/status");
+      const android = (st.teles || []).find(t => t.tipo === "android");
+      const cambio = !!android !== e.android.conectada || !!st.red_bloqueada !== e.red_bloqueada;
+      e.android.conectada = !!android;
+      e.android.nombre = android ? android.nombre : "";
+      e.red_bloqueada = !!st.red_bloqueada;
+      if (android && !S.tele) e.tele = "android";
+      if (cambio && S.paso === 2) render();
+    } catch (_) { /* sin respuesta: se vuelve a preguntar */ }
+  });
+}
+function panelRoku() {
+  const e = S.est;
+  const job = S.roku || e.roku.instalacion || { estado: "nada" };
+  const trabajando = job.estado === "buscando" || job.estado === "instalando";
+  const box = h("div", { class: "card instalar", id: "panel-roku" }, h("h3", null, "Instalar One TV en tu Roku"),
+    h("p", { style: "margin: 0; color: var(--text-soft)" }, "Se hace una sola vez:"),
+    h("ol", { class: "pasos-n" },
+      h("li", null, h("span", null, "Con el control del Roku presiona: ", h("span", { class: "teclas" },
+        h("span", null, "Inicio (la casita) 3 veces"), " · ", h("span", null, "▲ ▲"), " · ", h("span", null, "▶ ◀ ▶ ◀ ▶")))),
+      h("li", null, h("span", null, "En la pantalla que aparece, elige «Enable installer and restart» y después «I Agree».")),
+      h("li", null, h("span", null, "Cuando el Roku te pida una contraseña, escribe", h("span", { class: "clave", id: "clave" }, e.roku.clave))),
+      h("li", null, h("span", null, "Cuando el Roku reinicie, presiona el botón de abajo."))),
+    h("p", { class: "ayuda-chica" }, "Esa contraseña solo sirve para instalar la app. No la vas a necesitar otra vez."));
+  if (job.estado === "listo") {
+    box.append(h("div", { class: "estado-tv ok", role: "status" }, icon("check"), h("span", { class: "t" }, job.mensaje)));
+  } else {
+    box.append(h("div", { class: "fila-btn" }, h("button", { class: "btn pri", type: "button", id: "instalar-roku", disabled: trabajando,
+      onclick: instalarRoku }, job.estado === "error" ? "Probar otra vez" : "Instalar One TV en el Roku")));
+    if (trabajando) box.append(h("p", { class: "msg", role: "status" }, job.mensaje), h("div", { class: "prog" }, h("i")));
+    if (job.estado === "error") box.append(h("p", { class: "msg problema", role: "alert" }, job.mensaje));
+  }
+  if (trabajando) cada(1000, seguirRoku);
+  return box;
+}
+async function instalarRoku() {
+  const r = await post("/api/asistente/roku", {});
+  S.roku = r.ok ? { estado: r.estado, mensaje: r.mensaje } : { estado: "error", mensaje: r.error || SIN_RED };
+  render();
+}
+async function seguirRoku() {
+  try {
+    const r = await getJSON("/api/asistente/roku");
+    if (!S.roku || r.estado !== S.roku.estado || r.mensaje !== S.roku.mensaje) {
+      S.roku = { estado: r.estado, mensaje: r.mensaje };
+      if (r.estado === "listo") S.est.roku.instalada = true;
+      if (S.paso === 2) render();
+    }
+  } catch (_) { /* se vuelve a preguntar */ }
+}
+function panelAndroid() {
+  const e = S.est;
+  const box = h("div", { class: "card instalar", id: "panel-android" }, h("h3", null, "Instalar One TV en tu TV"),
+    h("p", { style: "margin: 0; color: var(--text-soft)" }, "Se hace una sola vez:"),
+    h("ol", { class: "pasos-n" },
+      h("li", null, h("span", null, "En la tienda de apps de tu TV, instala ", h("b", null, "Downloader"), ".")),
+      h("li", null, h("span", null, "Ábrela y escribe esta dirección:", h("span", { class: "direccion", id: "direccion-tv" }, e.android.direccion))),
+      h("li", null, h("span", null, "Instala One TV y ábrela. Encuentra esta computadora sola."))),
+    h("details", { class: "mas" }, h("summary", null, "¿Tu TV no deja instalarla?"),
+      h("ol", null,
+        h("li", null, "En Google TV: Configuración › Sistema › Información, toca 7 veces «Compilación del SO de Android TV». Luego Configuración › Apps › Seguridad y restricciones › Fuentes desconocidas › Downloader."),
+        h("li", null, "En Fire TV: Configuración › Mi Fire TV › Acerca de, toca 7 veces el nombre de tu Fire TV. Luego Mi Fire TV › Opciones para desarrolladores › Instalar apps desconocidas › Downloader."))));
+  if (!e.android.hay_app) box.append(h("p", { class: "ayuda-chica" }, "Esta computadora todavía no tiene la app para tu TV: la baja sola de internet. Si Downloader no la encuentra, prueba más tarde."));
+  box.append(e.android.conectada
+    ? h("div", { class: "estado-tv ok", role: "status", id: "tv-estado" }, icon("check"), h("span", { class: "t" }, `Tu TV está conectada${e.android.nombre ? " («" + e.android.nombre + "»)" : ""}.`))
+    : h("div", { class: "estado-tv espera", role: "status", id: "tv-estado" }, h("span", { class: "t" }, "Esperando a que tu TV se conecte…")));
+  return box;
+}
+function avisoRed() {
+  const e = S.est;
+  const msg = S.msgs.red;
+  return h("div", { class: "estado-tv mal", id: "aviso-red" }, icon("circle-alert"),
+    h("span", { class: "t" }, h("b", null, "Tu TV no puede entrar a esta computadora."), h("br"),
+      h("span", { class: "sub" }, e.puede_permitir ? "Windows la está bloqueando." : "Windows la está bloqueando. En la computadora donde está One TV, abre esta página y toca «Permitir»."),
+      msg ? h("span", { class: "problema", style: "display: block; margin-top: 6px" }, msg) : null),
+    e.puede_permitir ? h("button", { class: "btn pri chico", type: "button", id: "permitir", disabled: !!S.ocupado.red, onclick: permitir },
+      S.ocupado.red ? "Esperando…" : "Permitir") : null);
+}
+async function permitir() {
+  S.ocupado.red = true; S.msgs.red = ""; render();
+  const r = await post("/api/asistente/permitir-red", {});
+  S.ocupado.red = false;
+  if (r.ok) S.est.red_bloqueada = false; else S.msgs.red = r.error || SIN_RED;
+  render();
+}
+
+// ---------- 3. Extras ----------
+const TAKEOUT = "https://takeout.google.com";
+function pintarExtras(main) {
+  const e = S.est;
+  main.append(h("h1", null, "Extras"), h("p", { class: "lead" }, "Opcionales. También puedes hacerlo después, en Ajustes."));
+  const box = h("div", { id: "extras" });
+  box.append(extraMusica(e));
+  if (e.youtube.disponible) box.append(extraYouTube(e));
+  box.append(extraSubtitulos(e), extraFuera(e));
+  main.append(box);
+}
+function filaExtra(id, ic, titulo, linea, lado, detalle) {
+  return h("div", { class: "extra", id }, h("div", { class: "extra-f" }, icon(ic),
+    h("div", { class: "t" }, h("h3", null, titulo), h("p", null, linea)), h("div", { class: "lado" }, lado)), detalle || null);
+}
+const listo = (texto = "Lista") => h("span", { class: "estado" }, icon("check"), texto);
+const mensaje = clave => S.msgs[clave] ? h("p", { class: "msg " + (S.msgs[clave].ok ? "bien" : "problema"), role: "status" }, S.msgs[clave].t) : null;
+function extraMusica(e) {
+  const m = e.musica;
+  if (m.lista) {
+    return filaExtra("x-musica", "music", "Tu música",
+      `Encontré ${m.mas ? "más de " : ""}${plural(m.canciones, "canción", "canciones")}${m.carpeta ? " en «" + m.carpeta + "»" : ""}.`,
+      [listo(), h("button", { class: "link", type: "button", onclick: () => abrirExplorador("musica") }, "Cambiar")], mensaje("musica"));
+  }
+  return filaExtra("x-musica", "music", "Tu música", "No encontré tu música. Elige la carpeta donde está.",
+    h("button", { class: "btn", type: "button", id: "elegir-musica", onclick: () => abrirExplorador("musica") }, "Elegir carpeta"), mensaje("musica"));
+}
+function extraYouTube(e) {
+  const y = e.youtube;
+  if (y.listo) return filaExtra("x-youtube", "square-play", "Tu YouTube",
+    `${plural(y.suscripciones, "suscripción", "suscripciones")} y ${plural(y.listas, "lista", "listas")}.`, listo("Listo"));
+  const abierto = !!S.abierto.youtube;
+  const detalle = abierto ? h("div", { class: "detalle" },
+    h("p", { style: "margin: 0 0 8px" }, "Google te deja descargar tus suscripciones y tus listas. Toma unos minutos:"),
+    h("ol", null,
+      h("li", null, "Entra a ", h("a", { href: TAKEOUT, target: "_blank", rel: "noopener" }, "takeout.google.com"), " con tu cuenta y pulsa «Anular selección»."),
+      h("li", null, "Marca solo «YouTube y YouTube Music»."),
+      h("li", null, "En «Se incluyen todos los datos de YouTube», deja historial, listas de reproducción y suscripciones, y quita «vídeos»."),
+      h("li", null, "En «Varios formatos», cambia el historial a JSON."),
+      h("li", null, "Pulsa «Paso siguiente», elige una sola exportación en archivo .zip y pulsa «Crear exportación»."),
+      h("li", null, "Cuando llegue el correo, descarga el .zip en la computadora donde está One TV y déjalo en Descargas.")),
+    h("div", { class: "fila-btn" }, h("button", { class: "btn pri chico", type: "button", id: "ya-youtube", disabled: !!S.ocupado.youtube,
+      onclick: importarYouTube }, S.ocupado.youtube ? "Buscando…" : "Ya lo descargué")),
+    mensaje("youtube")) : null;
+  return filaExtra("x-youtube", "square-play", "Tu YouTube", "Tus suscripciones y tus listas.",
+    h("button", { class: "btn", type: "button", "aria-expanded": String(abierto), onclick: () => { S.abierto.youtube = !abierto; render(); } }, "Traer mi YouTube"), detalle);
+}
+async function importarYouTube() {
+  S.ocupado.youtube = true; render();
+  const r = await post("/api/yt/import", {});
+  S.ocupado.youtube = false;
+  if (r.ok) {
+    S.est.youtube = { ...S.est.youtube, listo: true, suscripciones: r.subscriptions || 0, listas: r.playlists || 0 };
+  } else {
+    S.msgs.youtube = { ok: false, t: "Todavía no está en Descargas. Cuando termine de bajar, vuelve a tocar «Ya lo descargué» (también se importa solo en unos minutos)." };
+  }
+  render();
+}
+function extraSubtitulos(e) {
+  if (e.subtitulos.activos) return filaExtra("x-subs", "captions", "Subtítulos", "Se bajan solos, en español y en inglés.", listo("Activos"));
+  const abierto = !!S.abierto.subs;
+  const campo = (id, label, tipo, auto) => h("div", { class: "campo" }, h("label", { for: id }, label),
+    h("input", { id, type: tipo, autocomplete: auto, spellcheck: "false", autocapitalize: "off" }));
+  const detalle = abierto ? h("form", { class: "detalle", id: "form-subs", onsubmit: guardarSubtitulos },
+    h("ol", null,
+      h("li", null, "Crea una cuenta gratis en ", h("a", { href: "https://www.opensubtitles.com", target: "_blank", rel: "noopener" }, "opensubtitles.com"), "."),
+      h("li", null, "Entra a ", h("a", { href: "https://www.opensubtitles.com/consumers", target: "_blank", rel: "noopener" }, "opensubtitles.com/consumers"),
+        ", crea una app (cualquier nombre) y copia su «API key»."),
+      h("li", null, "Escríbela aquí con tu usuario y tu contraseña:")),
+    h("div", { class: "campos" }, campo("os-clave", "API key", "text", "off"), campo("os-usuario", "Usuario", "text", "username"),
+      campo("os-contrasena", "Contraseña", "password", "current-password")),
+    h("div", { class: "fila-btn" }, h("button", { class: "btn pri chico", type: "submit", id: "guardar-subs", disabled: !!S.ocupado.subs },
+      S.ocupado.subs ? "Comprobando…" : "Comprobar y guardar")),
+    mensaje("subs")) : null;
+  return filaExtra("x-subs", "captions", "Subtítulos", "Se bajan solos, en español y en inglés. Pide una cuenta gratis de OpenSubtitles.",
+    h("button", { class: "btn", type: "button", id: "activar-subs", "aria-expanded": String(abierto), onclick: () => { S.abierto.subs = !abierto; render(); } }, "Activar"), detalle);
+}
+async function guardarSubtitulos(ev) {
+  ev.preventDefault();
+  const datos = { api_key: $("os-clave").value, usuario: $("os-usuario").value, clave: $("os-contrasena").value };
+  S.ocupado.subs = true; S.msgs.subs = null;
+  $("guardar-subs").disabled = true; $("guardar-subs").textContent = "Comprobando…";
+  const r = await post("/api/asistente/subtitulos", datos);
+  S.ocupado.subs = false;
+  if (r.ok) {
+    S.est.subtitulos = { activos: true, usuario: datos.usuario };
+    S.abierto.subs = false;
+    render();
+    return;
+  }
+  S.msgs.subs = { ok: false, t: r.error || SIN_RED };
+  render();
+  $("os-clave").value = datos.api_key; $("os-usuario").value = datos.usuario; $("os-contrasena").value = datos.clave;
+}
+function extraFuera(e) {
+  const f = e.fuera;
+  if (f.estado === "listo") return filaExtra("x-fuera", "globe", "Fuera de casa",
+    h("span", null, "En tu teléfono, con Tailscale prendido, abre ", h("b", null, f.direccion), "."), listo("Listo"));
+  const abierto = !!S.abierto.fuera;
+  const puedeActivar = f.estado === "instalado" && f.puede;
+  const pasos = h("div", { class: "detalle" },
+    h("p", { style: "margin: 0 0 8px" }, "Se hace con Tailscale, una app gratis que conecta tu teléfono con esta computadora solo para ti, sin abrirla a internet."),
+    h("ol", null,
+      h("li", null, "Instala Tailscale en esta computadora y en tu teléfono (", h("a", { href: "https://tailscale.com/download", target: "_blank", rel: "noopener" }, "tailscale.com/download"),
+        ") y entra con la misma cuenta en los dos."),
+      h("li", null, f.puede ? "Vuelve aquí y toca «Activar»." : "Abre este asistente en la computadora donde está One TV y toca «Activar».")),
+    h("div", { class: "fila-btn" },
+      f.puede ? h("button", { class: "btn pri chico", type: "button", id: "activar-fuera", disabled: !!S.ocupado.fuera, onclick: activarFuera },
+        S.ocupado.fuera ? "Activando…" : "Activar") : null,
+      f.estado === "falta" ? h("button", { class: "btn chico", type: "button", onclick: async () => { await cargarEstado(); render(); } }, "Ya la instalé") : null),
+    mensaje("fuera"));
+  return filaExtra("x-fuera", "globe", "Fuera de casa", "Ver One TV en tu teléfono desde cualquier lugar.",
+    puedeActivar && !abierto ? h("button", { class: "btn", type: "button", onclick: activarFuera, disabled: !!S.ocupado.fuera }, S.ocupado.fuera ? "Activando…" : "Activar")
+      : h("button", { class: "btn", type: "button", id: "como-fuera", "aria-expanded": String(abierto), onclick: () => { S.abierto.fuera = !abierto; render(); } }, "Cómo"),
+    abierto || S.msgs.fuera ? pasos : null);
+}
+async function activarFuera() {
+  S.ocupado.fuera = true; S.msgs.fuera = null; render();
+  const r = await post("/api/asistente/fuera", {});
+  S.ocupado.fuera = false;
+  if (r.ok) S.est.fuera = { estado: "listo", direccion: r.direccion, puede: true };
+  else S.msgs.fuera = { ok: false, t: r.error || SIN_RED };
+  render();
+}
+
+// ---------- 4. Listo ----------
+function pintarListo(main) {
+  const e = S.est;
+  if (!S.hecha) {   // la página principal deja de mandar aquí
+    S.hecha = true;
+    post("/api/bienvenida", { hecha: true });
+  }
+  const lead = e.arranque === "solo" ? "One TV ya funciona y arranca solo cada vez que prendes esta computadora."
+    : e.arranque === "equipo" ? "One TV ya funciona y arranca solo cada vez que se prende el equipo donde está."
+    : "One TV ya funciona en esta computadora.";
+  const items = [`Tus videos: ${plural(e.carpetas, "carpeta", "carpetas")}`];
+  const tele = teleElegida();
+  if (e.android.conectada) items.push(`Tu TV${e.android.nombre ? " «" + e.android.nombre + "»" : ""}, conectada`);
+  else if ((S.roku && S.roku.estado === "listo") || (tele === "roku" && e.roku.instalada)) items.push("La app en tu Roku");
+  if (e.musica.lista) items.push("Tu música");
+  if (e.youtube.listo) items.push("Tu YouTube");
+  if (e.subtitulos.activos) items.push("Subtítulos que se bajan solos");
+  if (e.fuera.estado === "listo") items.push("Fuera de casa");
+  const dir = e.telefono.replace(/^https?:\/\//, "");
+  main.append(h("h1", null, "¡Listo!"), h("p", { class: "lead" }, lead),
+    h("div", { class: "listo" },
+      h("ul", { class: "resumen", id: "resumen" }, items.map(t => h("li", null, icon("check"), t))),
+      h("div", { class: "telefono" },
+        h("h3", null, "Ábrelo en tu teléfono"),
+        h("img", { class: "qr solo-ancho", src: "/api/asistente/qr.png", width: "220", height: "220", alt: "Código QR con la dirección de One TV" }),
+        h("p", { class: "qr-t solo-ancho" }, "Apunta la cámara del teléfono al código, o escribe ", h("b", null, dir), " en su navegador."),
+        h("div", { class: "solo-telefono" }, h("p", { style: "margin: 0 0 4px; color: var(--text-soft)" }, "En el navegador del teléfono escribe:"),
+          h("div", { class: "dir-tel" }, dir)))),
+    h("div", { class: "fila-btn", style: "margin-top: 28px" },
+      h("a", { class: "btn pri", id: "abrir", href: "/" }, e.local ? "Abrir One TV en esta computadora" : "Abrir One TV")));
+}
+
+// ---------- el explorador de carpetas («Agregar otra carpeta», «Elegir carpeta» de la música) ----------
+const EXP = { para: "videos", ruta: "", datos: null, antes: null };
+async function abrirExplorador(para) {
+  EXP.para = para;
+  EXP.antes = document.activeElement;
+  $("velo").hidden = false;
+  $("exp-t").textContent = para === "musica" ? "¿Dónde está tu música?" : "Elige una carpeta";
+  await explorar("");
+}
+function cerrarExplorador() {
+  $("velo").hidden = true;
+  if (EXP.antes && EXP.antes.isConnected) EXP.antes.focus();
+}
+async function explorar(ruta) {
+  EXP.ruta = ruta;
+  const lista = $("exp-lista");
+  lista.replaceChildren(h("li", { class: "vacia" }, "Abriendo…"));
+  let r;
+  try {
+    r = await getJSON("/api/asistente/explorar?ruta=" + encodeURIComponent(ruta));
+  } catch (_) {
+    r = { ok: false, error: SIN_RED };
+  }
+  if (!r.ok) {
+    lista.replaceChildren(h("li", { class: "vacia problema" }, r.error || SIN_RED));
+    return;
+  }
+  EXP.datos = r;
+  const inicio = !r.ruta;
+  $("exp-arriba").disabled = inicio;
+  $("exp-arriba").style.visibility = inicio ? "hidden" : "visible";
+  $("exp-t").textContent = inicio ? (EXP.para === "musica" ? "¿Dónde está tu música?" : "Elige una carpeta") : r.nombre;
+  $("exp-donde").textContent = inicio ? "Elige dónde buscar:" : r.donde;
+  lista.replaceChildren();
+  if (r.sin_permiso) lista.append(h("li", { class: "vacia" }, h("span", { class: "problema" }, "No puedo abrir esta carpeta: no tengo permiso para leerla. "), r.arreglo));
+  else if (!r.carpetas.length) lista.append(h("li", { class: "vacia" }, "No tiene más carpetas adentro."));
+  r.carpetas.forEach(c => lista.append(h("li", null, h("button", { type: "button", onclick: () => explorar(c.ruta) },
+    icon(inicio ? (c.donde && c.donde.startsWith("En el disco") ? "hard-drive" : "house") : "folder"),
+    h("span", { class: "n" }, c.nombre, inicio && c.donde ? h("span", { class: "d" }, h("br"), c.donde) : null), icon("right")))));
+  $("exp-elegir").disabled = inicio || !!r.sin_permiso;
+  $("exp-info").textContent = inicio || r.sin_permiso ? "" : EXP.para === "videos" ? cuenta(r).replace(/\. Lo que pongas.*$/, ".") : "";
+  const primero = lista.querySelector("button");
+  (primero || $("exp-cerrar")).focus();
+}
+async function elegirCarpeta() {
+  const r = EXP.datos;
+  if (!r || !r.ruta) return;
+  if (EXP.para === "musica") {
+    $("exp-elegir").disabled = true;
+    const x = await post("/api/asistente/musica", { carpeta: r.ruta });
+    $("exp-elegir").disabled = false;
+    if (!x.ok) { $("exp-info").textContent = x.error || SIN_RED; return; }
+    S.est.musica = { lista: x.canciones > 0, canciones: x.canciones, mas: x.mas, carpeta: x.carpeta };
+    S.msgs.musica = x.canciones > 0 ? null : { ok: true, t: `Listo: uso «${x.carpeta}». En cuanto pongas música ahí, aparece sola.` };
+    cerrarExplorador();
+    render();
+    return;
+  }
+  if (!S.carpetas.some(c => c.ruta === r.ruta)) {
+    S.carpetas.push({ ruta: r.ruta, nombre: r.nombre, donde: r.donde, peliculas: r.peliculas || 0, series: r.series || 0, mas: !!r.mas,
+                      elegida: true, agregada: true, solo_lectura: false });
+  }
+  S.elegidas.add(r.ruta);
+  S.errorCarpetas = "";
+  cerrarExplorador();
+  render();
+}
+$("exp-cerrar").addEventListener("click", cerrarExplorador);
+$("exp-arriba").addEventListener("click", () => explorar(EXP.datos && EXP.datos.arriba || ""));
+$("exp-elegir").addEventListener("click", elegirCarpeta);
+$("velo").addEventListener("click", ev => { if (ev.target === $("velo")) cerrarExplorador(); });
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("velo").hidden) cerrarExplorador(); });
+
+// ---------- Atrás y Siguiente ----------
+$("atras").addEventListener("click", () => irA(S.paso - 1));
+$("sig").addEventListener("click", async () => {
+  if (S.paso === 1 && S.carpetas && !(await guardarCarpetas())) return;
+  if (S.paso === 1 || S.paso === 3) await cargarEstado();   // con lo último: el Roku que apareció, lo guardado
+  irA(S.paso + 1);
+});
+window.addEventListener("hashchange", () => {
+  const m = location.hash.match(/paso=(\d)/);
+  if (m && +m[1] !== S.paso) { S.paso = +m[1]; render(); }
+});
+
+async function inicio() {
+  await cargarEstado();
+  const m = location.hash.match(/paso=(\d)/);
+  S.paso = m ? Math.min(4, +m[1]) : 0;
+  render();
+}
+inicio();
+</script>
+</body>
+</html>

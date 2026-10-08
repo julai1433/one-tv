@@ -14,6 +14,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import asistente
 import hostos
 from apptv import TIPO as TV_APP_TYPE, pagina_sin_app
 from live import LiveError, decode_url, rewrite_playlist, unwrap_segment
@@ -251,8 +252,12 @@ def make_handler(app):
 
         def _route_get(self, path):
             parts = [urllib.parse.unquote(p) for p in path.strip("/").split("/")]
+            if path == "/" and _welcome_pending(app):   # primera vez: el asistente que termina la configuración
+                return self._send(302, headers={"Location": "/bienvenida", "Cache-Control": "no-store"})
             if path in ("/", "/index.html"):
                 return self._file(WEB_DIR / "index.html")
+            if path.rstrip("/") == "/bienvenida":
+                return self._file(WEB_DIR / "bienvenida.html")
             if len(parts) == 1 and re.fullmatch(r"[\w.-]+\.(png|webmanifest|js)", parts[0]):
                 return self._file(WEB_DIR / parts[0], cache=True)
             if len(parts) == 2 and parts[0] == "fonts" and re.fullmatch(r"[\w-]+\.woff2", parts[1]):   # letras de la web
@@ -268,6 +273,7 @@ def make_handler(app):
                 data["live"] = app.live.public()
                 data["youtube"] = app.youtube.recent()
                 data["queue"] = app.queue.items()
+                data["sin_permiso"] = app.unreadable_folders()   # carpetas que no se pueden leer: la web y la TV lo dicen
                 # Pósters (vertical) de películas y series; ?v cambia cuando llega el póster de verdad.
                 for it in data["items"].values():
                     if it["kind"] == "movie":
@@ -280,6 +286,8 @@ def make_handler(app):
                 return self._json(data)
             if path == "/api/status":
                 return self._json(app.status())
+            if path.startswith("/api/asistente/"):   # el asistente del primer arranque (mac/asistente.py)
+                return self._wizard_get(path[len("/api/asistente/"):])
             if path == "/api/tv/ordenes":   # la app de la TV con Android espera aquí las órdenes (mac/teles.py)
                 return self._tv_orders()
             if path == "/api/tv/app":   # la app para Google TV / Android TV / Fire TV: versión y dirección para instalarla
@@ -378,8 +386,11 @@ def make_handler(app):
                                    "dubs": (info or {}).get("dubs", [])})
             if parts[0] == "yt" and len(parts) >= 3 and VIDEO_ID.match(parts[1]):
                 return self._youtube(parts[1], parts[2:])
-            if path == "/api/music":   # tu música: {ok, artists, albums, tracks, playlists}
+            if path == "/api/music":   # tu música, todo junto (las apps de antes): {ok, artists, albums, tracks, playlists}
                 return self._json({"ok": True, "enabled": app.music.enabled, **app.music.public()})
+            if path.startswith("/api/music/") and path[11:] in MUSIC_PARTS:   # tu música por partes (mac/music.py)
+                q = {k: v[0] for k, v in urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).items()}
+                return self._json(music_part(app, path[11:], q))
             if path == "/api/music/session":   # ?id=: lo que se mandó a la TV para escuchar
                 sid = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("id", [""])[0]
                 return self._json(app.music_session(sid))
@@ -402,6 +413,62 @@ def make_handler(app):
             if parts[0] == "mosaic" and len(parts) in (3, 4):
                 return self._mosaic(parts[1], "/".join(parts[2:]))
             self._send(404, b"no encontrado")
+
+        # ---------- el asistente (/bienvenida): quién puede usarlo, en mac/asistente.py ----------
+
+        def _wizard_access(self):
+            """(¿desde esta computadora?, ¿puede usar el asistente?) de quien pide."""
+            host = self.headers.get("Host", "")
+            try:
+                own = self.connection.getsockname()[0]
+            except (OSError, AttributeError, IndexError):
+                own = ""
+            local = asistente.is_local(self.client_address[0], own, host)
+            return local, asistente.may_change(local, _welcome_pending(app), host)
+
+        def _wizard_get(self, name):
+            w = getattr(app, "asistente", None)
+            if w is None:
+                return self._send(404, b"no encontrado")
+            local, allowed = self._wizard_access()
+            if name == "estado":   # sin permiso solo dice eso (la página explica por qué)
+                return self._json(w.state(allowed, local))
+            if not allowed:
+                return self._json({"ok": False, "error": asistente.NOT_ALLOWED}, 403)
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            if name == "carpetas":
+                return self._json(w.folders())
+            if name == "explorar":
+                return self._json(w.browse(q.get("ruta", [""])[0]))
+            if name == "roku":
+                return self._json(w.roku_status())
+            if name == "qr.png":
+                return self._send(200, w.qr(), "image/png", {"Cache-Control": "no-store"})
+            return self._send(404, b"no encontrado")
+
+        def _wizard_post(self, name, body):
+            w = getattr(app, "asistente", None)
+            if w is None:
+                return self._send(404, b"no encontrado")
+            body = body if isinstance(body, dict) else {}
+            local, allowed = self._wizard_access()
+            if not allowed:
+                return self._json({"ok": False, "error": asistente.NOT_ALLOWED}, 403)
+            if name in ("permitir-red", "fuera") and not local:   # abren ventanas o cambian cosas de esta computadora
+                return self._json({"ok": False, "error": asistente.ONLY_HERE}, 403)
+            if name == "carpetas":   # {carpetas: [ruta…]}
+                return self._json(w.save_folders(body.get("carpetas")))
+            if name == "roku":   # instalar One TV en el Roku (el avance, con GET)
+                return self._json(w.roku_install())
+            if name == "musica":   # {carpeta}
+                return self._json(w.music(str(body.get("carpeta") or "")))
+            if name == "subtitulos":   # {api_key, usuario, clave}
+                return self._json(w.subtitles(body))
+            if name == "permitir-red":   # Windows: la regla del firewall (pide permiso en esta computadora)
+                return self._json(w.allow_network())
+            if name == "fuera":   # Tailscale
+                return self._json(w.outside())
+            return self._send(404, b"no encontrado")
 
         def _tv_orders(self):
             """Espera (hasta ~25 s) las órdenes para esa TV: ver algo, pausa, avanzar, pistas, salir, actualiza…"""
@@ -671,13 +738,26 @@ def make_handler(app):
                 if path == "/api/yt/channel/hide":   # «Silenciar canal»: {id, title} o {video} (el canal de ese video) -> {ok, id, title}
                     return self._json(app.yt_channel_hide(str(body.get("id") or ""), str(body.get("title") or ""),
                                                           video=str(body.get("video") or "")))
-                if path == "/api/queue/add_tracks":   # {tracks: [id…], front?} -> canciones a la fila
-                    tracks = body.get("tracks") if isinstance(body.get("tracks"), list) else []
+                if path == "/api/queue/add_tracks":   # {tracks: [id…] | kind, id; front?} -> canciones a la fila
+                    if body.get("kind"):   # un álbum, un artista o una lista entera (hasta 500), sin mandar sus canciones
+                        got = app.music.pick(str(body["kind"]), str(body.get("id", "")), size=500)
+                        tracks = got[0] if got else []
+                    else:
+                        tracks = body.get("tracks") if isinstance(body.get("tracks"), list) else []
                     return self._json(app.queue_add_tracks([str(t) for t in tracks][:500], _bool(body.get("front", False))))
-                if path == "/api/music/tv":   # {tracks: [id…], index?, shuffle?, start?} -> escuchar en la TV
-                    tracks = body.get("tracks") if isinstance(body.get("tracks"), list) else []
-                    return self._json(app.music_tv([str(t) for t in tracks][:2000], _int(body.get("index")) or 0,
-                                                   _bool(body.get("shuffle", False)), _int(body.get("start")) or 0))
+                if path == "/api/music/tv":   # {tracks: [id…] | kind, id; index?, shuffle?, start?} -> escuchar en la TV
+                    index, shuffle = _int(body.get("index")) or 0, _bool(body.get("shuffle", False))
+                    if body.get("kind"):   # un álbum, un artista o una lista: hasta 500 desde esa (o al azar)
+                        got = app.music.pick(str(body["kind"]), str(body.get("id", "")), index, shuffle)
+                        if not got:
+                            return self._json({"ok": False, "error": "Eso ya no está en tu música."})
+                        (tracks, index), shuffle = got, False
+                    else:
+                        tracks = body.get("tracks") if isinstance(body.get("tracks"), list) else []
+                    return self._json(app.music_tv([str(t) for t in tracks][:2000], index, shuffle,
+                                                   _int(body.get("start")) or 0))
+                if path == "/api/music/search":   # {q, limit?}: el Roku busca por POST (no puede codificar direcciones)
+                    return self._json(music_part(app, "search", body if isinstance(body, dict) else {}))
                 if path == "/api/yt/dismiss":   # «No me interesa»: {id, on?} -> {ok}
                     return self._json(app.yt_dismiss(str(body.get("id", "")), _bool(body.get("on", True))))
                 if path == "/api/yt/channel/unhide":   # {id} -> {ok}
@@ -731,6 +811,14 @@ def make_handler(app):
                 if path == "/api/rescan":
                     app.library.scan(force=True)
                     return self._json({"ok": True, "items": len(app.library.items)})
+                if path == "/api/bienvenida":   # {hecha: true|false}: se terminó (o se vuelve a abrir) el asistente
+                    done = _bool(body.get("hecha", True))
+                    local, allowed = self._wizard_access()
+                    if not (allowed if done else local):   # volver a abrirlo para todos: solo desde esta computadora
+                        return self._json({"ok": False, "error": asistente.NOT_ALLOWED if done else asistente.ONLY_HERE}, 403)
+                    return self._json(app.welcome_done(done))
+                if path.startswith("/api/asistente/"):
+                    return self._wizard_post(path[len("/api/asistente/"):], body)
                 self._send(404)
             except (BrokenPipeError, ConnectionResetError):
                 pass
@@ -742,6 +830,52 @@ def make_handler(app):
 
 def _int(v):
     return None if v is None or v == "" else int(float(v))
+
+
+def _welcome_pending(app):
+    """¿Falta el asistente del primer arranque? (config.json con «bienvenida_hecha»: false, como lo deja el
+    instalador). Sin esa clave, como en las instalaciones de antes, nunca."""
+    pending = getattr(app, "welcome_pending", None)
+    return bool(pending and pending())
+
+
+def _num(v, default=0):
+    """Un número que llega en la dirección (?offset=60); si no es número, el de siempre."""
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return default
+
+
+MUSIC_PARTS = ("home", "more", "page", "mix", "tracks", "search")
+GONE = "Eso ya no está en tu música."
+
+
+def music_part(app, part, q):
+    """Tu música por partes (GET /api/music/<parte>?…, y POST /api/music/search para el Roku):
+    home                              lo de la sección Música: unas tarjetas por fila y los totales
+    more?kind=artists|albums|playlists&offset&limit     otra tanda
+    page?kind=album|artist|list&id&offset&limit         un álbum, un artista o una lista, con una tanda de canciones
+    mix?kind&id&index&shuffle=1       hasta 500 canciones para escuchar seguidas (o al azar) de algo grande
+    tracks?ids=a,b,c                  esas canciones (hasta 500), listas para sonar
+    search?q&limit                    artistas, álbumes, listas y canciones que digan eso"""
+    m = app.music
+    if part == "home":
+        return {"ok": True, "enabled": m.enabled, **m.home()}
+    if part == "more":
+        got = m.more(str(q.get("kind", "")), _num(q.get("offset")), _num(q.get("limit"), 60))
+        return {"ok": True, "kind": str(q.get("kind")), **got} if got else {"ok": False, "error": "No sé qué más mandar."}
+    kind, ident = str(q.get("kind", "")), str(q.get("id", ""))
+    if part == "page":
+        got = m.page(kind, ident, _num(q.get("offset")), _num(q.get("limit"), 200))
+        return {"ok": True, **got} if got else {"ok": False, "error": GONE}
+    if part == "mix":
+        got = m.mix(kind, ident, _num(q.get("index")), _bool(q.get("shuffle", "")))
+        return {"ok": True, **got} if got else {"ok": False, "error": GONE}
+    if part == "tracks":
+        ids = [t for t in str(q.get("ids", "")).split(",") if t][:500]
+        return {"ok": True, "tracks": m.tracks_pub(ids)}
+    return {"ok": True, **m.search(str(q.get("q", ""))[:200], _num(q.get("limit"), 20))}
 
 
 def _song(body):

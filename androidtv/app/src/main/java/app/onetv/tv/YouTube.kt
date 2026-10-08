@@ -405,11 +405,8 @@ fun Estado.abrirMenuTarjeta(id: String): Boolean {
             val parts = id.split(":")
             val ctx = parts.getOrNull(1) ?: return false
             val i = parts.getOrNull(2)?.toIntOrNull() ?: return false
-            val ids = when (ctx) {
-                "recent" -> datos?.recientes().orEmpty()
-                else -> (paginas.lastOrNull() as? Pagina.MusicaPagina)?.let { datos?.musicaPaginaTracks(it) }.orEmpty()
-            }
-            val t = ids.getOrNull(i)?.let { music?.tracks?.get(it) } ?: return false
+            val songs = if (ctx == "recent") datos?.recientes().orEmpty() else cancionesDePagina()   // Musica.kt
+            val t = songs.getOrNull(i) ?: return false
             title = t.title + " · " + t.artist
             opciones += Opcion("Escuchar ahora", "Siguen las demás de aquí", "play", "play")
             opciones += Opcion("A continuación", "Sigue después de lo que se ve", "list-start", "next")
@@ -571,6 +568,7 @@ fun Estado.ajuste(name: String) {
             else "El nombre del capítulo ya no aparecerá; al pausar se ven los capítulos sobre la barra.")
         }
         "hidden" -> abrirPagina(Pagina.Silenciados)
+        "computadora" -> cambiarComputadora()
         "reload" -> {
             mostrarAviso("Actualizando la biblioteca…")
             scope.launch {

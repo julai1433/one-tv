@@ -165,13 +165,18 @@ class FuncionesRokuTest {
     @Test
     fun ajustes_en_la_fila_de_reproduccion() {
         val l = parseLibrary(JSONObject("""{"items": {}, "prefs": {"ytAutoplay": true, "chapterTitles": false}}"""))
-        val fila = Datos(l, "", null, null, false, emptyMap()).fila(emptyList())
+        val fila = Datos(l, "http://192.0.2.5:8765", null, null, false, emptyMap()).fila(emptyList(), "Computadora de la sala")
         val ajustes = fila.filas.last()
         assertEquals("Ajustes generales", ajustes.title)
-        assertEquals(listOf("set:autoplay", "set:chapters", "set:hidden", "set:reload"), ajustes.tarjetas.map { it.id })
-        assertEquals(1, ajustes.tarjetas[0].ajuste!!.elegido)   // «Seguir con recomendados»
-        assertEquals(1, ajustes.tarjetas[1].ajuste!!.elegido)   // «No»
-        assertEquals("Ninguno silenciado", ajustes.tarjetas[2].ajuste!!.boton)
+        assertEquals(listOf("set:computadora", "set:autoplay", "set:chapters", "set:hidden", "set:reload"), ajustes.tarjetas.map { it.id })
+        assertEquals("Computadora: Computadora de la sala", ajustes.tarjetas[0].title)   // y «Cambiar»
+        assertEquals("Cambiar", ajustes.tarjetas[0].ajuste!!.boton)
+        assertEquals(1, ajustes.tarjetas[1].ajuste!!.elegido)   // «Seguir con recomendados»
+        assertEquals(1, ajustes.tarjetas[2].ajuste!!.elegido)   // «No»
+        assertEquals("Ninguno silenciado", ajustes.tarjetas[3].ajuste!!.boton)
+        // Sin el nombre (un servidor viejo), la dirección.
+        val sinNombre = Datos(l, "http://192.0.2.5:8765", null, null, false, emptyMap()).fila(emptyList()).filas.last()
+        assertEquals("Computadora: 192.0.2.5:8765", sinNombre.tarjetas[0].title)
     }
 
     @Test

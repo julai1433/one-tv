@@ -492,6 +492,7 @@ class Library:
         self.next_ep = {}      # episodio -> el inmediato siguiente (si está en la biblioteca)
         self.scanned_at = 0
         self.warnings = []
+        self.unreadable = []   # carpetas de la biblioteca que One TV no tiene permiso de leer (la web lo dice)
         self.ext_probe = {}    # (ruta, mtime, tamaño) de pistas aparte -> ffprobe
         self.original_lookup = None   # función(video) -> código de idioma original; la pone la app (metadata.py)
         # Subtítulos que One TV guardó en su propia carpeta (los de videos en carpetas de otro programa, como Plex):
@@ -508,6 +509,7 @@ class Library:
         """Lista (raíz, ruta) de todos los videos, sin extras ni archivos ocultos."""
         found = []
         self.warnings = []
+        unreadable = []
         for root in self.roots:
             try:
                 os.listdir(root)
@@ -515,9 +517,8 @@ class Library:
                 self.warnings.append(f"no existe la carpeta {root}")
                 continue
             except PermissionError:
-                self.warnings.append(f"macOS no deja leer {root} (mueve los videos a ~/Movies "
-                                     "o da «Acceso total al disco» a python3 en Ajustes → Privacidad)" if hostos.MAC
-                                     else f"tu usuario no tiene permiso para leer {root}")
+                unreadable.append(str(root))
+                self.warnings.append(f"no tengo permiso para leer {root}. {hostos.unreadable_hint()}")
                 continue
             for dirpath, dirnames, filenames in os.walk(root):
                 dirnames[:] = [d for d in dirnames
@@ -530,6 +531,7 @@ class Library:
                     if EXTRA_SUFFIX_RE.search(Path(f).stem):   # extra de Plex: «Película (2009)-trailer.mkv»
                         continue
                     found.append((root, Path(dirpath) / f))
+        self.unreadable = unreadable
         return found
 
     def scan(self, force=False):

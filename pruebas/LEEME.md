@@ -14,6 +14,31 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
 
 ## Cada herramienta
 
+- `instalador_mac.sh [puerto]` — el instalador de verdad (`instalar.sh`) en esta Mac como si fuera una sin Homebrew,
+  sin Python y sin las herramientas de Xcode: HOME falso en `/tmp`, PATH sin Homebrew, otro puerto (8803), sin
+  arranque automático y sin poder hablarle a ninguna TV (`sandbox-exec`). Baja de verdad Python y ffmpeg (unos 80 MB) y
+  revisa que el servidor arranque con ellos, que `/bienvenida` responda y que volver a correrlo ponga al día sin
+  bajar nada ni perder datos. Borra todo al terminar.
+- `instalador_ubuntu.sh` — lo mismo en dos contenedores de Ubuntu 24.04: uno recién instalado (sin Python, ffmpeg ni
+  curl, sin systemd; instala con apt) y uno con systemd por SSH (el servicio de verdad, con «linger»). Necesita Docker.
+- `powershell.sh` — los guiones de PowerShell de Windows sin Windows: `test_red_windows.py` en un contenedor con
+  PowerShell 7, con los comandos del firewall reemplazados por unos falsos. Necesita Docker.
+- `instalador_nas.sh` — `instalar.sh` con Docker en un Ubuntu con systemd dentro de Docker y sin Docker instalado:
+  con `--docker` instala Docker con el oficial (necesita internet) y crea el contenedor `one-tv`; luego, como si fuera
+  un Synology, lo reconoce y monta `/volume1` de solo lectura; un `one-tv` ajeno no lo toca. Puerto 8808. Borra todo.
+- `test_instalador.py` — las funciones de `instalar.sh` (sin red: lo «bajado» son archivos falsos): qué baja según el
+  chip, las sumas de verificación, que no vuelva a bajar lo que ya está y que poner al día conserve `config.json`.
+- `test_instalador_nas.py` — la parte de NAS de `instalar.sh` con un sistema de archivos y programas falsos: reconoce
+  cada NAS, sus carpetas compartidas y la de datos, el comando de Docker, qué dice si falta Docker en cada uno, y que
+  los docker-compose de `docs/INSTALAR-DOCKER.md` monten lo que dicen.
+- `test_instaladores.py` — el `.pkg` de la Mac (en una Mac lo arma y lo instala «solo para ti» con un `instalar.sh`
+  falso), los nombres fijos de los instaladores, la página del botón (con Node) y `herramientas/firmar_mac.sh` sin
+  certificados (con programas falsos).
+- `test_bienvenida.py` — el primer arranque sin preguntas, `/bienvenida`, `cine instalador` y la copia de `config.json`
+  del servicio. `test_asistente.py` — el asistente de `/bienvenida` (`mac/asistente.py`): busca carpetas con videos en
+  una casa inventada (y en Docker, en `ONE_TV_COMPARTIDAS`), guarda lo elegido sin tocar lo demás, la contraseña del
+  Roku, quién puede usarlo, el explorador (nunca fuera de los lugares permitidos) y un Roku falso con contraseña. `test_red_windows.py` — la regla «One TV» del firewall de Windows y `cine permitir-red`.
+
 - `captura_tele.sh [archivo.jpg]` — captura de pantalla de la app del Roku (modo desarrollador). Usa `roku_ip` y `roku_password` de `config.json`; si `roku_ip` está vacío, busca el Roku en la red.
 - `iconos_roku.py` — vuelve a generar los íconos de la app del Roku (`roku/images/icons/*.png`, trazos de Lucide
   en blanco que la app tiñe), las piezas 9-patch (relleno y contornos de esquinas casi rectas, marco de foco,
@@ -29,6 +54,11 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
   salgan del bloque `:root`, las letras propias (woff2 + OFL) y que las esquinas sean de 2 px o rectas. **No manda nada a la tele ni cambia datos**: todo POST (reproducir, fila, idioma, progreso) se
   intercepta y solo se anota, y lo que depende de internet (buscar en YouTube, canal, lista, subtítulos) se
   contesta con datos de ejemplo. Sale con código 1 si algo falla.
+- `web_asistente.py <carpeta> [puerto=8809]` — el asistente de `/bienvenida` de punta a punta en Chrome sin ventana,
+  a 1280 px (en el puerto dado) y 390 px (en el siguiente), con capturas de cada paso. Arma una casa inventada en una
+  carpeta temporal (también la carpeta personal: `HOME` apunta ahí), un Roku falso, una TV con Android que se conecta,
+  Windows que bloquea la entrada y OpenSubtitles falso; el servidor escucha solo en 127.0.0.1 y no toca nada real.
+  Revisa cada paso, lo que queda en `config.json`, que nada se salga a lo ancho y la paleta. Sale con código 1 si algo falla.
 - `web_youtube_continua.py <carpeta> <ancho>` — ajuste de reproducción continua (Fila de reproducción → Ajustes
   generales) y el aviso «Recomendado por YouTube» en el navegador. ⚠ Usa el servidor real: prende y apaga el
   ajuste real y reproduce un video corto; ensucia el historial.
@@ -51,6 +81,12 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
 - `doblaje_trozos_vs_original.py <carpeta> <video> <pista.m4a>` — compara los trozos que se mandan a la tele
   con una pista aparte contra la pista que viene dentro del archivo (necesita numpy: usar el Python de
   `~/Library/Application Support/cine-roku/doblaje/bin/python`).
+- `musica_grande.py CARPETA [canciones]` — una música de EJEMPLO grande, inventada (por omisión 70 000 canciones,
+  ~7 150 álbumes y ~3 850 artistas, con un «Varios artistas» de miles de canciones y una lista de 5 000): cada
+  canción es un enlace a la misma canción corta y cada álbum trae una portada de un color, así no ocupa espacio; lo ya
+  leído queda en `CARPETA/datos/musica.json` (no hace falta ffprobe). Sirve para medir y probar la música por partes en
+  la web, el Roku y Android TV (config «musica»: `[CARPETA/musica]`, datos del servidor en `CARPETA/datos`).
+  `test_musica_grande.py` usa la misma música, en memoria.
 - `intro_temporada.py "<carpeta de la temporada>" [otra carpeta o video …] [--detalle]` — detecta la entrada
   («Saltar intro») de cada episodio igual que el servicio (`mac/introsync.py`, con el Python de numpy del
   doblaje y prioridad baja) y muestra una tabla: inicio, fin, duración y confianza (cuántos compañeros

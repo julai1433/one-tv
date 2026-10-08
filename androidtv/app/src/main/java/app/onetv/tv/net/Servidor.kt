@@ -50,5 +50,12 @@ class Servidor(@Volatile var base: String) {
         } catch (_: Exception) {
             false
         }
+
+        /** La computadora con One TV de esta dirección (nombre y videos), o null. Con tiempo límite corto. */
+        fun estado(base: String, timeoutMs: Int = 700): Encontrada? = try {
+            Busqueda.leerEstado(base, leer("$base/api/status", null, timeoutMs))
+        } catch (_: Exception) {
+            null
+        }
     }
 }

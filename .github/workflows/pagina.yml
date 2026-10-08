@@ -1,0 +1,42 @@
+# Publica la página del botón «Descargar One TV» (pagina/index.html, armada con pagina/armar.sh) en GitHub Pages:
+#   https://julai1433.github.io/one-tv/
+# Reconoce el sistema y ofrece el instalador de la versión «instaladores» (.github/workflows/instaladores.yml).
+# Antes de la primera vez hay que activarlo una vez en GitHub: Settings → Pages → Source: «GitHub Actions».
+name: Página de descarga
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pagina/**"
+      - "mac/web/fonts/**"
+      - "mac/web/icon-180.png"
+      - ".github/workflows/pagina.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pagina
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.publicar.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Armar la página
+        run: pagina/armar.sh _sitio
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _sitio
+      - id: publicar
+        uses: actions/deploy-pages@v4

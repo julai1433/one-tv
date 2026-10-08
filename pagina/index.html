@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Descargar One TV</title>
+<meta name="description" content="Tus películas, series, YouTube y música, de la computadora a la TV. Descarga One TV para Mac, Windows o Linux.">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='3' fill='%23A6E22E'/%3E%3Cpath fill='%230A0F00' transform='translate(16.91,76) scale(0.0325,-0.0325)' d='M168 0V1336H66L60 1442L232 1600H468V0Z'/%3E%3Cpath fill='%230A0F00' d='M43.12 27L83.14 50L43.12 73Z'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icon-180.png">
+<!--
+  La página del botón «Descargar One TV» (GitHub Pages: .github/workflows/pagina.yml la publica con pagina/armar.sh).
+  Reconoce el sistema con el navegador y ofrece lo suyo: el .pkg (Mac) o el .cmd (Windows) de la versión «instaladores»
+  de GitHub (nombres fijos: .github/workflows/instaladores.yml), o el comando (Linux). ?sistema=mac|windows|linux|movil
+  fuerza uno. Colores y letras: DESIGN.md.
+-->
+<style>
+  @font-face { font-family: "Archivo"; src: url("fonts/Archivo-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+  @font-face { font-family: "Archivo"; src: url("fonts/Archivo-Medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+  @font-face { font-family: "Archivo"; src: url("fonts/Archivo-Bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+  @font-face { font-family: "Big Shoulders Display"; src: url("fonts/BigShouldersDisplay-Black.woff2") format("woff2"); font-weight: 900; font-display: swap; }
+  @font-face { font-family: "Archivo medidas"; src: local("Arial"), local("ArialMT"); size-adjust: 97.9%; ascent-override: 89.9%; descent-override: 21.5%; line-gap-override: 0%; }
+  @font-face { font-family: "Marquesina medidas"; src: local("Arial Narrow Bold"), local("ArialNarrow-Bold"); size-adjust: 83.7%; ascent-override: 117%; descent-override: 25%; line-gap-override: 0%; }
+  :root {
+    --bg: #000000; --raise-1: #0C0C0C; --raise-2: #161616; --line: #2E2E2E; --edge: #5E5E58;
+    --text: #F2F2EE; --text-soft: #C9C9C2; --muted: #8C8C85; --lime: #A6E22E; --on-lime: #0A0F00;
+    --font: "Archivo", "Archivo medidas", sans-serif;
+    --font-display: "Big Shoulders Display", "Marquesina medidas", "Archivo", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scrollbar-color: var(--edge) var(--bg); }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 400 16px/1.5 var(--font); letter-spacing: .005em;
+         font-synthesis: none; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  a { color: inherit; }
+  button { font: inherit; color: inherit; letter-spacing: inherit; cursor: pointer; }
+  [hidden] { display: none !important; }
+  ::selection { background: var(--lime); color: var(--on-lime); }
+  :focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+  :focus:not(:focus-visible) { outline: none; }
+  a, button { transition: color .12s ease-out, background-color .12s ease-out, border-color .12s ease-out; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+  .i { width: 1.25em; height: 1.25em; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
+       stroke-linecap: round; stroke-linejoin: round; }
+
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+  @media (min-width: 720px) { main { padding: 64px 32px 64px; } }
+
+  .brand { display: flex; align-items: center; gap: 11px; font: 900 28px/1 var(--font-display); text-transform: uppercase;
+           letter-spacing: -.01em; }
+  .brand svg { width: 36px; height: 36px; flex: none; }
+  .brand rect { fill: var(--lime); } .brand path { fill: var(--on-lime); }
+
+  h1 { font: 900 44px/1 var(--font-display); text-transform: uppercase; letter-spacing: -.01em; margin: 56px 0 16px;
+       text-wrap: balance; }
+  @media (min-width: 720px) { h1 { font-size: 64px; margin-top: 80px; } }
+  .lead { color: var(--text-soft); font-size: 20px; line-height: 1.4; margin: 0 0 40px; max-width: 34em; }
+
+  .boton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px;
+           padding: 0 20px; border-radius: 2px; border: 1px solid var(--edge); background: none; color: var(--text);
+           font-weight: 700; font-size: 16px; text-decoration: none; }
+  .boton:hover { border-color: var(--lime); color: var(--lime); }
+  .boton.principal { background: var(--lime); border-color: var(--lime); color: var(--on-lime); min-height: 56px;
+                     padding: 0 28px; font-size: 20px; }
+  .boton.principal:hover { color: var(--on-lime); }
+
+  .ayuda { color: var(--muted); font-size: 14px; margin: 16px 0 0; max-width: 34em; }
+  .ayuda b { color: var(--text-soft); font-weight: 500; }
+
+  .comando-titulo { font-weight: 700; margin: 0 0 8px; }
+  .comando { display: flex; align-items: stretch; gap: 0; background: var(--raise-2); }
+  .comando code { flex: 1; min-width: 0; padding: 14px 16px; font: 500 15px/1.5 var(--font); color: var(--text);
+                  overflow-wrap: anywhere; user-select: all; }
+  .comando .boton { border-radius: 0; border: 0; border-left: 1px solid var(--line); min-height: 0; flex: none; }
+  .comando .boton.principal { border-left: 0; font-size: 16px; padding: 0 20px; min-height: 0; }
+
+  details { margin-top: 32px; }
+  summary { cursor: pointer; color: var(--text-soft); font-weight: 500; list-style: none; display: inline-flex;
+            align-items: center; gap: 6px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "›"; display: inline-block; transition: transform .12s ease-out; }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary:hover { color: var(--lime); }
+  details > div { margin-top: 16px; }
+
+  .otros { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap;
+           gap: 8px 24px; align-items: baseline; color: var(--muted); font-size: 14px; }
+  .otros nav { display: flex; gap: 16px; flex-wrap: wrap; }
+  .otros button { background: none; border: 0; padding: 0; color: var(--text-soft); font-size: 14px; font-weight: 500;
+                  text-decoration: underline; text-underline-offset: 3px; }
+  .otros button[aria-current="true"] { color: var(--lime); text-decoration: none; }
+  .otros a { color: var(--text-soft); font-weight: 500; text-underline-offset: 3px; }
+  .otros button:hover, .otros a:hover { color: var(--lime); }
+  .otros .nas { margin-left: auto; }
+  @media (max-width: 520px) { .otros .nas { margin-left: 0; } }
+
+  .ayuda.movil { font-size: 16px; color: var(--text-soft); margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="3"/><path transform="translate(16.91,76) scale(0.0325,-0.0325)" d="M168 0V1336H66L60 1442L232 1600H468V0Z"/><path d="M43.12 27L83.14 50L43.12 73Z"/></svg>One TV</div>
+
+  <h1>Tus películas en la TV</h1>
+  <p class="lead">Películas, series, YouTube y música de tu computadora, en la TV. Se instala en un paso.</p>
+
+  <section data-para="mac">
+    <a class="boton principal" href="https://github.com/julai1433/one-tv/releases/download/instaladores/Instalar-One-TV-Mac.pkg">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+      Descargar One TV para Mac</a>
+    <p class="ayuda">Ábrelo y sigue los pasos. Tarda unos minutos; al terminar se abre el navegador para elegir tus carpetas y tu TV.</p>
+    <!-- Quitar cuando el .pkg esté firmado y notarizado (herramientas/firmar_mac.sh). -->
+    <p class="ayuda" data-sin-firma>Si la Mac dice que no puede comprobarlo: <b>Configuración del Sistema → Privacidad y seguridad → «Abrir de todos modos»</b>.</p>
+    <details>
+      <summary>¿Prefieres la Terminal?</summary>
+      <div>
+        <div class="comando"><code>curl -fsSL https://raw.githubusercontent.com/julai1433/one-tv/main/instalar.sh | bash</code><button class="boton copiar" type="button">Copiar</button></div>
+      </div>
+    </details>
+  </section>
+
+  <section data-para="windows">
+    <a class="boton principal" href="https://github.com/julai1433/one-tv/releases/download/instaladores/Instalar-One-TV-Windows.cmd">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+      Descargar One TV para Windows</a>
+    <p class="ayuda">Ábrelo con doble clic. Tarda unos minutos; al terminar se abre el navegador para elegir tus carpetas y tu TV.</p>
+    <p class="ayuda">Si el navegador o Windows avisan: <b>«Conservar»</b>, y luego <b>«Más información» → «Ejecutar de todas formas»</b>.</p>
+    <details>
+      <summary>¿Prefieres PowerShell?</summary>
+      <div>
+        <div class="comando"><code>irm https://raw.githubusercontent.com/julai1433/one-tv/main/windows/instalar.ps1 | iex</code><button class="boton copiar" type="button">Copiar</button></div>
+      </div>
+    </details>
+  </section>
+
+  <section data-para="linux">
+    <p class="comando-titulo">Pega esto en la Terminal:</p>
+    <div class="comando"><code>wget -qO- https://raw.githubusercontent.com/julai1433/one-tv/main/instalar.sh | bash</code><button class="boton principal copiar" type="button">Copiar</button></div>
+    <p class="ayuda">Sirve en Ubuntu, Debian y otros, y en un NAS por SSH. Tarda unos minutos; al terminar te dice la dirección para abrir One TV en el navegador.</p>
+  </section>
+
+  <section data-para="movil" hidden>
+    <p class="ayuda movil">One TV se instala en una computadora de la casa o en un NAS. Abre esta página en ella; después lo usas desde el teléfono y la TV.</p>
+  </section>
+
+  <footer class="otros">
+    <nav aria-label="Otro sistema">
+      <span>¿Otro sistema?</span>
+      <button type="button" data-sistema="mac">Mac</button>
+      <button type="button" data-sistema="windows">Windows</button>
+      <button type="button" data-sistema="linux">Linux</button>
+    </nav>
+    <a class="nas" href="https://github.com/julai1433/one-tv/blob/main/docs/INSTALAR-DOCKER.md">¿Tienes un NAS?</a>
+    <a href="https://github.com/julai1433/one-tv">Código en GitHub</a>
+  </footer>
+</main>
+<script>
+(function () {
+  var SISTEMAS = ["mac", "windows", "linux", "movil"];
+
+  function detectar() {
+    var pedido = new URLSearchParams(location.search).get("sistema");
+    if (SISTEMAS.indexOf(pedido) >= 0) return pedido;
+    var ua = navigator.userAgent || "";
+    if (/iPhone|iPad|iPod|Android/i.test(ua)) return "movil";
+    if (/Macintosh|Mac OS X/i.test(ua)) return navigator.maxTouchPoints > 1 ? "movil" : "mac";   // iPad «de escritorio»
+    if (/Windows/i.test(ua)) return "windows";
+    if (/Linux|X11|CrOS/i.test(ua)) return "linux";
+    var p = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "").toLowerCase();
+    if (p.indexOf("mac") >= 0) return "mac";
+    if (p.indexOf("win") >= 0) return "windows";
+    if (p.indexOf("linux") >= 0) return "linux";
+    return "movil";   // no se sabe: lo mismo que en un teléfono (las tres opciones abajo)
+  }
+
+  function mostrar(sistema, recordar) {
+    document.documentElement.dataset.sistema = sistema;
+    document.querySelectorAll("[data-para]").forEach(function (s) { s.hidden = s.dataset.para !== sistema; });
+    document.querySelectorAll("[data-sistema]").forEach(function (b) {
+      b.setAttribute("aria-current", b.dataset.sistema === sistema ? "true" : "false");
+    });
+    if (recordar) {
+      var u = new URL(location.href);
+      u.searchParams.set("sistema", sistema);
+      history.replaceState(null, "", u);
+    }
+  }
+
+  document.querySelectorAll("[data-sistema]").forEach(function (b) {
+    b.addEventListener("click", function () { mostrar(b.dataset.sistema, true); });
+  });
+
+  document.querySelectorAll(".copiar").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var texto = b.parentNode.querySelector("code").textContent;
+      var listo = function () {
+        b.textContent = "Copiado";
+        setTimeout(function () { b.textContent = "Copiar"; }, 2000);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(texto).then(listo, function () { seleccionar(b); });
+      } else {
+        seleccionar(b);
+      }
+    });
+  });
+
+  function seleccionar(b) {   // sin portapapeles: deja el comando seleccionado para copiarlo a mano
+    var r = document.createRange();
+    r.selectNodeContents(b.parentNode.querySelector("code"));
+    var s = getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  }
+
+  mostrar(detectar(), false);
+})();
+</script>
+</body>
+</html>

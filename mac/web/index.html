@@ -196,6 +196,8 @@
   .m-sub { color: var(--text-soft); font-size: 14px; }
   .m-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   @media (max-width: 599px) { .m-cover { width: 148px; } .m-acts .btn { flex: 1 1 auto; } }
+  .more-music { display: flex; margin: 24px auto 0; }   /* «Ver más álbumes / canciones»: llegan solas al acercarse */
+  [data-key=msearch] .chan { scroll-snap-align: start; }   /* buscar: el artista junto a las portadas, sin que la fila lo salte */
   .tracks .lrow { padding: 0; gap: 4px; }
   .trk { flex: 1; min-width: 0; display: flex; align-items: center; gap: 16px; padding: 12px 0; border: 0; background: none;
          color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -482,6 +484,10 @@
   .note { color: var(--text-soft); font-size: 14px; margin: 0 0 16px; max-width: 68ch; }
   .hint { color: var(--muted); font-size: 14px; margin: 16px 0 0; }
   .hint.err { color: var(--guinda-claro); }
+  .folder-warn { border: 1px solid var(--guinda-claro); border-radius: 2px; padding: 12px 16px; margin: 0 0 24px; }
+  .folder-warn p { margin: 0; color: var(--text-soft); }
+  .folder-warn p + p { margin-top: 8px; }
+  .folder-warn strong { color: var(--guinda-claro); }
   /* Error de un formulario: la frase en letra de marquesina guinda claro y la causa debajo (como un vacío con error). */
   .form-err { max-width: 68ch; }
   .form-err-t { margin: 0; font-size: 28px; color: var(--guinda-claro); overflow-wrap: anywhere; }
@@ -1819,9 +1825,11 @@ function pageHead(title, o = {}) {
 const searchBtn = () => h("a", { class: "sq only-phone", href: "#buscar", "aria-label": "Buscar", title: "Buscar" }, icon("search"));
 const backBtn = (fallback, label = "Volver") => h("button", { class: "back", type: "button", onclick: () => goBack(fallback) }, icon("back"), label);
 
-// Estado de la tele en palabras (sin puntos de color): CONECTADA, NO RESPONDE o BUSCANDO (todavía no se sabe).
+// Estado de la tele en palabras (sin puntos de color): CONECTADA, NO RESPONDE (un Roku que se encontró o se anotó y
+// ahora no contesta), SIN TV (ninguna: quizá no hay Roku o la app de la TV está cerrada; no es un error) o BUSCANDO.
 let tv = { state: "wait", info: "", macDown: false };
-const TV_WORD = { ok: "Conectada", off: "No responde", wait: "Buscando" };
+const TV_WORD = { ok: "Conectada", off: "No responde", sin: "Sin TV", wait: "Buscando" };
+const TV_SIN = "Abre One TV en la TV para mandarle videos";
 function tvStatus(id, o = {}) {
   const el = h("div", { class: "tv" + (o.compact ? " compact" : ""), id, role: o.live === false ? null : "status" },
     icon("tv"), h("span", { class: "tv-k" }, "TV"), h("span", { class: "tv-w" }), o.info ? h("span", { class: "tv-info" }) : null);
@@ -1866,15 +1874,28 @@ function paintTv(el) {
   const info = el.querySelector(".tv-info");
   if (info) { info.textContent = tv.info; info.classList.toggle("err", tv.macDown); }
 }
+// El nombre de una carpeta para mostrarlo (solo el último tramo, sin la ruta completa): «Biblioteca», no /Users/…/Biblioteca.
+function folderName(path) { const s = String(path || "").replace(/[\\/]+$/, ""); return s.split(/[\\/]/).pop() || s; }
 function setTv(state, info = "", macDown = false) {
   if (tv.state === state && tv.info === info && tv.macDown === macDown) return;
   tv = { state, info, macDown };
   document.querySelectorAll(".tv").forEach(paintTv);
-  document.querySelectorAll(".tv-hint").forEach(el => { el.hidden = tv.state !== "off"; });
+  document.querySelectorAll(".tv-hint").forEach(paintTvHint);
 }
-// Debajo de «Ver en la TV»: aparece solo cuando la computadora no encuentra la TV.
-const tvHint = () => h("p", { class: "hint err tv-hint", style: "margin: -8px 0 0", hidden: tv.state !== "off" },
-  "La TV no responde ahora (¿está apagada?). La computadora la sigue buscando.");
+// Debajo de «Ver en la TV»: aparece solo cuando no hay a qué TV mandar. Si la que había no contesta, en guinda; si no
+// hay ninguna, qué hacer, en gris.
+function paintTvHint(el) {
+  el.hidden = tv.state !== "off" && tv.state !== "sin";
+  el.classList.toggle("err", tv.state === "off");
+  el.textContent = tv.state === "sin"
+    ? "No hay ninguna TV conectada. Abre One TV en la TV; si todavía no la tiene, mira cómo instalarla en Ajustes generales."
+    : "La TV no responde ahora (¿está apagada?). La computadora la sigue buscando.";
+}
+const tvHint = () => {
+  const el = h("p", { class: "hint tv-hint", style: "margin: -8px 0 0" });
+  paintTvHint(el);
+  return el;
+};
 
 // Vacío que enseña: la fila conserva su forma (huecos dibujados), una frase corta, la causa y qué hacer.
 // e = { t: frase, d: causa, a: { label, href | onclick }, help: { key, label, steps }, err, loading }
@@ -2172,8 +2193,19 @@ function becauseEmpty() {
                                 a: { label: "Buscar un video", href: "#youtube" } };
   return { loading: true, d: "Buscando videos parecidos a lo último que viste…" };
 }
+// Carpetas que la computadora no tiene permiso de leer (videos o música): cuál y qué hacer. Sin esto solo se vería
+// «0 videos» y nadie sabría por qué.
+const unreadable = kind => ((lib && lib.sin_permiso) || []).filter(x => !kind || x.tipo === kind);
+function folderWarn() {
+  const bad = unreadable();
+  if (!bad.length) return null;
+  return h("div", { class: "folder-warn", role: "alert" }, bad.map(x =>
+    h("p", null, h("strong", null, `No puedo abrir tu carpeta de ${x.tipo} «${folderName(x.carpeta)}».`), " ", x.que_hacer)));
+}
 function pageHome() {
   main.append(pageHead("Inicio", { search: true, tv: true }));
+  const warn = folderWarn();
+  if (warn) main.append(warn);
   const cont = continueEntries();
   main.append(row("Seguir viendo", cont.map(continueCard), { key: "continue", shape: "p",
     empty: { t: "Nada a medias", d: "Aquí aparece lo que dejes a medias, en la TV o en cualquier dispositivo.",
@@ -2188,7 +2220,7 @@ function pageHome() {
     { key: "because", more: "#youtube", empty: becauseEmpty() }));
   const recent = (lib.rows.find(r => r.title === "Recién agregadas") || { items: [] }).items;
   main.append(row("Recién agregadas", recent.map(e => itemCard(e.id, e.label)), { key: "recent", shape: "p",
-    empty: { t: "La biblioteca está vacía", d: "Las películas y series que copies a la carpeta de la biblioteca aparecen aquí solas.",
+    empty: unreadable("videos").length ? { err: true, t: "No puedo abrir tu carpeta de videos", d: unreadable("videos")[0].que_hacer } : { t: "La biblioteca está vacía", d: "Las películas y series que copies a la carpeta de la biblioteca aparecen aquí solas.",
              help: { key: "lib", label: "Dónde van los archivos", steps: [
                "Copia la película o la serie a la carpeta de la biblioteca en la computadora (la que se eligió al instalar; si no se cambió, Películas → Biblioteca).",
                "One TV la ordena y la revisa sola: en unos minutos aparece aquí y en la TV."] } } }));
@@ -2985,6 +3017,7 @@ function updateSearchResults() {
     box.append(h("section", { class: "row" }, rowHead("En tu biblioteca", { count: cards.length ? String(shows.length + items.length) : "" }),
       cards.length ? grid(cards) : voidEl({ t: "Sin resultados", d: `Nada en tu biblioteca se llama «${q}». Prueba con otra palabra o búscalo en YouTube, aquí abajo.` }, "p")));
   }
+  if (!looksLikeYtLink(q)) { const m = musicResults(q); if (m) box.append(m); }
   const same = ytSearch.query === q;
   const body = same ? ytResultsBody(updateSearchResults) : null;
   box.append(h("section", { class: "row" }, rowHead("En YouTube"),
@@ -3207,6 +3240,10 @@ function pageQueue(r) {
     hiddenChannelsSetting(),
     offlineSetting(),
     tvAppSetting(),
+    // El asistente del primer arranque (/bienvenida): carpetas, TV y extras, paso a paso.
+    h("div", { class: "set", id: "asistente" }, h("div", { class: "set-t" }, "Asistente de configuración"),
+      h("div", { class: "set-d" }, "Tus carpetas de videos, tu TV, tu música, subtítulos y más, paso a paso."),
+      h("a", { class: "link", href: "/bienvenida" }, "Abrir el asistente", icon("right"))),
     // En la laptop el estado ya está abajo de la barra lateral; en el teléfono, aquí va con el conteo y el doblaje.
     h("div", { class: "set only-phone" }, h("div", { class: "set-t" }, "Estado"), tvStatus("tv-ajustes", { info: true, live: false })))));
 
@@ -3278,29 +3315,93 @@ function hiddenChannelsSetting() {
 }
 
 // ---------- tu música (mac/music.py): listas, canciones, artistas y álbumes; se escucha aquí o en la TV ----------
+// Llega por partes (con una biblioteca grande, todo junto serían decenas de MB): lo de la sección (/api/music/home),
+// más artistas, álbumes o listas al llegar al final de su fila (/api/music/more) y cada álbum, artista o lista al
+// abrirlo, sus canciones por tandas (/api/music/page). Cada canción que llega se guarda en `songs` (id -> canción):
+// con eso se escucha y se sabe qué sigue.
 
 let music = null, musicErr = false, musicLoading = null, musicAt = 0;
+const songs = {};
+const mpages = {};   // "album:<id>", "artist:<id>", "list:<id>" -> la página ({…, ids: las canciones ya traídas})
+const MUSIC_ROUTES = ["musica", "album", "artista", "mlista"];
+const keepSongs = list => (list || []).map(t => { songs[t.id] = t; return t.id; });
+const enc = encodeURIComponent;
+// Al volver a pedir la sección: lo que ya se había traído de más sigue si la música no cambió.
+const keepLoaded = (old, fresh) => old && old.length > fresh.length && fresh.every((x, i) => old[i].id === x.id)
+  ? fresh.concat(old.slice(fresh.length)) : fresh;
 function loadMusic() {
   if (musicLoading) return musicLoading;
-  musicLoading = getJSON("/api/music").then(x => { music = x; musicErr = false; musicAt = Date.now(); })
+  musicLoading = getJSON("/api/music/home").then(x => {
+    keepSongs(x.recent);
+    if (music && JSON.stringify(music.counts) === JSON.stringify(x.counts)) {
+      for (const k of ["artists", "albums", "playlists"]) x[k] = keepLoaded(music[k], x[k]);
+    } else for (const k in mpages) if (!mpages[k].loading) delete mpages[k];
+    music = x; musicErr = false; musicAt = Date.now();
+  })
     .catch(() => { musicErr = true; })
-    .finally(() => { musicLoading = null; if (lib && ["musica", "album", "artista", "mlista"].includes(route().name)) render(); });
+    .finally(() => { musicLoading = null; if (lib && MUSIC_ROUTES.includes(route().name)) render(); });
   return musicLoading;
 }
+// Otra tanda de artistas, álbumes o listas (las que siguen a las que ya hay). -> las nuevas
+const moreBusy = {};
+async function moreMusic(kind) {
+  const have = music && music[kind];
+  if (!have || moreBusy[kind] || have.length >= music.counts[kind]) return [];
+  moreBusy[kind] = true;
+  try {
+    const x = await getJSON(`/api/music/more?kind=${kind}&offset=${have.length}&limit=60`);
+    if (!x.ok || music[kind] !== have || x.offset !== have.length) return [];
+    have.push(...x.items);
+    return x.items;
+  } catch { return []; } finally { moreBusy[kind] = false; }
+}
+// Las canciones que falten (de la fila, de lo que sonaba aquí): se piden por sus ids.
+async function ensureSongs(ids) {
+  const missing = [...new Set(ids.filter(id => id && !songs[id]))];
+  for (let k = 0; k < missing.length; k += 300) {
+    try { keepSongs((await getJSON("/api/music/tracks?ids=" + missing.slice(k, k + 300).join(","))).tracks); } catch { return; }
+  }
+}
+// Una fila que se alarga sola: al acercarse a su final llega la tanda que sigue.
+function growRow(section, kind, make) {
+  const strip = section.querySelector(".strip");
+  if (!strip) return section;
+  const check = async () => {
+    if (strip.scrollLeft + strip.clientWidth < strip.scrollWidth - Math.max(600, strip.clientWidth)) return;
+    const items = await moreMusic(kind);
+    if (items.length && document.contains(strip)) { strip.append(...items.map(make)); requestAnimationFrame(check); }
+  };
+  strip.addEventListener("scroll", check, { passive: true });
+  requestAnimationFrame(check);
+  return section;
+}
+// Al final de una cuadrícula o de una lista larga: «Ver más», que también se pide solo al acercarse.
+function moreButton(label, load) {
+  const btn = h("button", { class: "btn small more-music", type: "button" }, icon("down"), label);
+  let busy = false;
+  const io = "IntersectionObserver" in window ? new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) run(); }, { rootMargin: "900px" }) : null;
+  async function run() {
+    if (busy || !document.contains(btn)) return;
+    busy = true;
+    const left = await load();
+    busy = false;
+    if (!left) { btn.remove(); if (io) io.disconnect(); return; }
+    if (io) { io.unobserve(btn); io.observe(btn); }   // si sigue cerca del final, la que sigue
+  }
+  btn.onclick = run;
+  if (io) requestAnimationFrame(() => io.observe(btn));
+  return btn;
+}
 const MUSIC_NOW = () => (pl && pl.music) ? pl.id : null;
-// Canciones agregadas hace poco: los álbumes más nuevos primero, cada uno con sus canciones en orden.
-function recentSongs(n = 40) {
-  return [...music.albums].sort((a, b) => b.added - a.added).flatMap(a => a.tracks).slice(0, n);
+function songCard(ids, i, src) {
+  const t = songs[ids[i]];
+  return card({ square: true, img: t.art, title: t.title, sub: t.artist, onclick: () => playFrom(src, ids, i),
+                menu: () => songMenu(ids, i, src) });
 }
-function songCard(ids, i) {
-  const t = music.tracks[ids[i]];
-  return card({ square: true, img: t.art, title: t.title, sub: t.artist, onclick: () => playMusicHere(ids, i),
-                menu: () => songMenu(ids, i) });
-}
-function songMenu(ids, i) {
-  const t = music.tracks[ids[i]];
-  return [{ icon: HERE[0], label: `Escuchar en ${HERE[1]}`, act: () => playMusicHere(ids, i) },
-          { icon: "tv", label: "Escuchar en la TV", act: () => musicToTv(ids, i) },
+function songMenu(ids, i, src) {
+  const t = songs[ids[i]];
+  return [{ icon: HERE[0], label: `Escuchar en ${HERE[1]}`, act: () => playFrom(src, ids, i) },
+          { icon: "tv", label: "Escuchar en la TV", act: () => musicToTv(ids, i, false, src) },
           "-",
           { icon: "list-start", label: "Reproducir a continuación", act: () => addToQueue("track", t.id, "", true) },
           { icon: "list-plus", label: "Al final de la fila", act: () => addToQueue("track", t.id) }];
@@ -3309,6 +3410,9 @@ function albumCard(a) {
   return card({ square: true, img: a.art, title: a.title, sub: [a.artist, a.year || ""].filter(Boolean).join(" · "),
                 onclick: () => go("album=" + a.id) });
 }
+function listCard(p) {
+  return card({ square: true, img: p.art, title: p.title, sub: plural(p.count, "canción", "canciones"), onclick: () => go("mlista=" + p.id) });
+}
 function artistCircle(ar) {
   return h("button", { class: "chan", type: "button", onclick: () => go("artista=" + ar.id) },
     h("div", { class: "chan-c" }, initialsOf(ar.name), h("img", { class: "chan-img", src: ar.art, alt: "", loading: "lazy", onerror: e => e.target.remove() })),
@@ -3316,92 +3420,178 @@ function artistCircle(ar) {
 }
 function musicVoid() {
   if (musicErr) return voidEl({ err: true, t: "No se pudo leer tu música", d: "La computadora no respondió.", a: { label: "Reintentar", onclick: loadMusic } }, "s", true);
-  return voidEl({ t: "Sin música todavía", d: "Pon tu música en la carpeta Música › Biblioteca de la computadora (o dile a One TV dónde está: «musica» en config.json) y aparece aquí sola, con sus portadas." }, "s", true);
+  const bad = unreadable("música");
+  if (bad.length) return voidEl({ err: true, t: "No puedo abrir tu carpeta de música", d: `«${folderName(bad[0].carpeta)}»: ${bad[0].que_hacer}` }, "s", true);
+  return voidEl({ t: "Sin música todavía", d: "Pon tu música en la carpeta Música › Biblioteca de la computadora y aparece aquí sola, con sus portadas." }, "s", true);
 }
 function pageMusic() {
   main.append(pageHead("Música", { tv: true }));
   if (!music) { loadMusic(); if (!musicErr) { main.append(voidEl({ loading: true, d: "Leyendo tu música…" }, "s")); return; } }
-  if (!music || !music.albums || !music.albums.length) { main.append(musicVoid()); return; }
+  if (music && music.reading && !music.counts.albums) {   // la primera vez con mucha música: se va leyendo
+    main.append(voidEl({ loading: true, d: "Leyendo tu música… La primera vez, con mucha música, tarda unos minutos." }, "s"));
+    setTimeout(() => { if (route().name === "musica") loadMusic(); }, 5000);
+    return;
+  }
+  if (!music || !music.counts || !music.counts.albums) { main.append(musicVoid()); return; }
   if (Date.now() - musicAt > 5 * 60000) loadMusic();
-  if (music.playlists.length) main.append(row("Tus listas", music.playlists.map(p => card({ square: true, img: p.art, title: p.title,
-      sub: plural(p.tracks.length, "canción", "canciones"), onclick: () => go("mlista=" + p.id) })), { key: "mlists", shape: "s" }));
-  const recent = recentSongs();
+  if (music.playlists.length) main.append(growRow(row("Tus listas", music.playlists.map(listCard), { key: "mlists", shape: "s" }), "playlists", listCard));
+  const recent = music.recent.map(t => t.id);
   main.append(row("Agregadas hace poco", recent.map((_, i) => songCard(recent, i)), { key: "mrecent", shape: "s" }));
-  main.append(row("Artistas", music.artists.map(artistCircle), { key: "martists", shape: "c", count: String(music.artists.length) }));
-  main.append(h("section", { class: "row" }, rowHead("Álbumes", { count: String(music.albums.length) }), grid(music.albums.map(albumCard))));
+  main.append(growRow(row("Artistas", music.artists.map(artistCircle), { key: "martists", shape: "c", count: String(music.counts.artists) }),
+                      "artists", artistCircle));
+  const albums = grid(music.albums.map(albumCard));
+  main.append(h("section", { class: "row" }, rowHead("Álbumes", { count: String(music.counts.albums) }), albums,
+    music.albums.length < music.counts.albums ? moreButton("Ver más álbumes", async () => {
+      const items = await moreMusic("albums");
+      albums.append(...items.map(albumCard));
+      return music.albums.length < music.counts.albums;
+    }) : null));
 }
 // Cabecera de un álbum, una lista o un artista: portada, nombre, datos y los botones para escucharlo.
 function musicHead(o) {
-  const ids = o.tracks;
-  const total = ids.reduce((n, id) => n + ((music.tracks[id] || {}).duration || 0), 0);
+  const p = o.page;
   return h("header", { class: "m-head" },
     h("img", { class: "m-cover", src: o.art, alt: "", onerror: hideImg }),
     h("div", { class: "m-info" },
       o.kicker ? h("div", { class: "m-kicker" }, o.kicker) : null,
       h("h1", { class: "m-title" }, o.title),
-      h("div", { class: "m-sub" }, [o.sub, plural(ids.length, "canción", "canciones"), total ? fmtDur(total) : ""].filter(Boolean).join(" · ")),
+      h("div", { class: "m-sub" }, [o.sub, plural(p.total, "canción", "canciones"), p.duration ? fmtDur(p.duration) : ""].filter(Boolean).join(" · ")),
       h("div", { class: "m-acts" },
-        h("button", { class: "btn primary", type: "button", id: "m-play", onclick: () => playMusicHere(ids, 0) }, icon("play"), `Escuchar en ${HERE[1]}`),
-        h("button", { class: "btn", type: "button", onclick: () => playMusicHere(shuffled(ids), 0) }, icon("shuffle"), "Aleatorio"),
-        h("button", { class: "btn", type: "button", onclick: () => musicToTv(ids, 0) }, icon("tv"), "En la TV"),
-        h("button", { class: "btn", type: "button", onclick: () => tracksToQueue(ids) }, icon("list-plus"), "A la fila"))));
+        h("button", { class: "btn primary", type: "button", id: "m-play", onclick: () => playFrom(p, p.ids, 0) }, icon("play"), `Escuchar en ${HERE[1]}`),
+        h("button", { class: "btn", type: "button", onclick: () => shuffleHere(p) }, icon("shuffle"), "Aleatorio"),
+        h("button", { class: "btn", type: "button", onclick: () => musicToTv(p.ids, 0, false, p) }, icon("tv"), "En la TV"),
+        h("button", { class: "btn", type: "button", onclick: () => tracksToQueue(p.ids, p) }, icon("list-plus"), "A la fila"))));
 }
 function shuffled(ids) {
   const a = [...ids];
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
 }
-function trackList(ids, showArtist) {
+const allLoaded = p => !p || p.ids.length >= p.total;
+// Escuchar desde la canción i: si ya están todas, aquí mismo; si no (algo enorme), la computadora manda las que siguen.
+function playFrom(p, ids, i) {
+  if (allLoaded(p)) return playMusicHere(ids, i);
+  mixHere(p, i, false);
+}
+function shuffleHere(p) {
+  if (!p.total) return;
+  if (allLoaded(p)) return playMusicHere(shuffled(p.ids), 0);
+  mixHere(p, Math.floor(Math.random() * p.total), true);
+}
+async function mixHere(p, i, shuffle) {
+  try {
+    const x = await getJSON(`/api/music/mix?kind=${p.kind}&id=${enc(p.id)}&index=${i}${shuffle ? "&shuffle=1" : ""}`);
+    if (x.ok) playMusicHere(keepSongs(x.tracks), x.index); else toast(x.error || "No se pudo.", true);
+  } catch { toast("No hay conexión con la computadora.", true); }
+}
+function trackItem(ids, i, showArtist, p) {
+  const id = ids[i], t = songs[id];
+  if (!t) return null;
   const now = MUSIC_NOW();
-  return h("ol", { class: "list tracks" }, ids.map((id, i) => {
-    const t = music.tracks[id];
-    if (!t) return null;
-    return h("li", { class: id === now ? "now" : null },
-      h("div", { class: "lrow" },
-        h("button", { class: "trk", type: "button", onclick: () => playMusicHere(ids, i), "aria-label": `Escuchar «${t.title}»` },
-          h("span", { class: "trk-n" }, id === now ? icon("sound") : String(i + 1)),
-          h("span", { class: "lrow-t" }, h("span", { class: "lrow-title" }, t.title),
-            showArtist || t.artist !== t.album_artist ? h("span", { class: "lrow-sub" }, t.artist) : null),
-          h("span", { class: "trk-d" }, fmt(t.duration))),
-        h("button", { class: "icon-btn", type: "button", "aria-label": "Más opciones: " + t.title, title: "Más opciones",
-                      onclick: e => openCardMenu(e.currentTarget, t.title, songMenu(ids, i)) }, icon("more"))));
+  return h("li", { class: id === now ? "now" : null },
+    h("div", { class: "lrow" },
+      h("button", { class: "trk", type: "button", onclick: () => playFrom(p, ids, i), "aria-label": `Escuchar «${t.title}»` },
+        h("span", { class: "trk-n" }, id === now ? icon("sound") : String(i + 1)),
+        h("span", { class: "lrow-t" }, h("span", { class: "lrow-title" }, t.title),
+          showArtist || t.artist !== t.album_artist ? h("span", { class: "lrow-sub" }, t.artist) : null),
+        h("span", { class: "trk-d" }, fmt(t.duration))),
+      h("button", { class: "icon-btn", type: "button", "aria-label": "Más opciones: " + t.title, title: "Más opciones",
+                    onclick: e => openCardMenu(e.currentTarget, t.title, songMenu(ids, i, p)) }, icon("more"))));
+}
+// Las canciones de una página; si son muchas, llegan por tandas al bajar.
+function trackList(p, showArtist) {
+  const ol = h("ol", { class: "list tracks" }, p.ids.map((_, i) => trackItem(p.ids, i, showArtist, p)));
+  if (allLoaded(p)) return ol;
+  return h("div", null, ol, moreButton("Ver más canciones", async () => {
+    const from = p.ids.length;
+    await moreTracks(p);
+    for (let i = from; i < p.ids.length; i++) ol.append(trackItem(p.ids, i, showArtist, p));
+    return !allLoaded(p);
   }));
 }
-function musicPage(r, find) {
-  if (!music) { loadMusic(); main.append(backBtn("#musica", "Música"), voidEl({ loading: !musicErr, err: musicErr, d: musicErr ? "No se pudo leer tu música." : "Leyendo tu música…" }, "s")); return null; }
-  const x = find(r.arg);
-  if (!x) { main.append(backBtn("#musica", "Música"), voidEl({ t: "Ya no está", d: "Se movió o se borró de la carpeta de música.", a: { label: "Ir a Música", href: "#musica" } }, "s", true)); return null; }
+async function moreTracks(p) {
+  if (p.busy || allLoaded(p)) return;
+  p.busy = true;
+  try {
+    const x = await getJSON(`/api/music/page?kind=${p.kind}&id=${enc(p.id)}&offset=${p.ids.length}`);
+    if (x.ok && x.offset === p.ids.length) p.ids.push(...keepSongs(x.tracks));
+  } catch {} finally { p.busy = false; }
+}
+// La página de un álbum, un artista o una lista: se pide al abrirla (y se guarda mientras la música no cambie).
+function musicPage(r, kind) {
   main.append(backBtn("#musica", "Música"));
-  return x;
+  const key = kind + ":" + r.arg;
+  if (!mpages[key]) loadMusicPage(kind, r.arg);
+  const p = mpages[key];
+  if (p.loading) { main.append(voidEl({ loading: true, d: "Leyendo tu música…" }, "s")); return null; }
+  if (p.err) {
+    main.append(voidEl({ err: true, t: "No se pudo leer tu música", d: "La computadora no respondió.",
+                         a: { label: "Reintentar", onclick: () => { delete mpages[key]; render(); } } }, "s", true));
+    return null;
+  }
+  if (p.gone) { main.append(voidEl({ t: "Ya no está", d: "Se movió o se borró de la carpeta de música.", a: { label: "Ir a Música", href: "#musica" } }, "s", true)); return null; }
+  return p;
+}
+function loadMusicPage(kind, id) {
+  const key = kind + ":" + id;
+  const p = mpages[key] = { loading: true };
+  getJSON(`/api/music/page?kind=${kind}&id=${enc(id)}`)
+    .then(x => { if (x.ok) { Object.assign(p, x, { ids: keepSongs(x.tracks) }); delete p.tracks; } else p.gone = true; })
+    .catch(() => { p.err = true; })
+    .finally(() => {
+      p.loading = false;
+      const r = route();
+      if (lib && MUSIC_ROUTES.includes(r.name) && r.arg === id) render();
+    });
 }
 function pageAlbum(r) {
-  const a = musicPage(r, id => music.albums.find(x => x.id === id));
+  const a = musicPage(r, "album");
   if (!a) return;
-  main.append(musicHead({ kicker: "Álbum", title: a.title, sub: [a.artist, a.year || ""].filter(Boolean).join(" · "), art: a.art, tracks: a.tracks }),
-              trackList(a.tracks, false));
+  main.append(musicHead({ kicker: "Álbum", title: a.title, sub: [a.artist, a.year || ""].filter(Boolean).join(" · "), art: a.art, page: a }),
+              trackList(a, false));
 }
 function pageMusicList(r) {
-  const p = musicPage(r, id => music.playlists.find(x => x.id === id));
+  const p = musicPage(r, "list");
   if (!p) return;
-  main.append(musicHead({ kicker: "Lista", title: p.title, art: p.art, tracks: p.tracks }), trackList(p.tracks, true));
+  main.append(musicHead({ kicker: "Lista", title: p.title, art: p.art, page: p }), trackList(p, true));
 }
 function pageArtist(r) {
-  const ar = musicPage(r, id => music.artists.find(x => x.id === id));
+  const ar = musicPage(r, "artist");
   if (!ar) return;
-  const albums = ar.albums.map(id => music.albums.find(a => a.id === id)).filter(Boolean);
-  const ids = albums.flatMap(a => a.tracks);
-  main.append(musicHead({ kicker: "Artista", title: ar.name, sub: plural(albums.length, "álbum", "álbumes"), art: ar.art, tracks: ids }));
-  if (albums.length > 1) main.append(row("Álbumes", albums.map(albumCard), { key: "aalbums", shape: "s" }));
-  main.append(h("section", { class: "row" }, rowHead("Canciones"), trackList(ids, false)));
+  main.append(musicHead({ kicker: "Artista", title: ar.title, sub: plural(ar.album_count, "álbum", "álbumes"), art: ar.art, page: ar }));
+  if (ar.album_count > 1) main.append(row("Álbumes", ar.albums.map(albumCard), { key: "aalbums", shape: "s" }));
+  main.append(h("section", { class: "row" }, rowHead("Canciones"), trackList(ar, false)));
 }
-async function musicToTv(ids, i, shuffle = false) {
+// A la TV: lo que ya está aquí; o, si es algo enorme, que la computadora lo arme (desde esa canción o al azar).
+async function musicToTv(ids, i, shuffle = false, p = null) {
   toast("Enviando a la TV…");
-  const r = await post("/api/music/tv", { tracks: ids, index: i, shuffle });
+  const r = await post("/api/music/tv", allLoaded(p) ? { tracks: ids, index: i, shuffle } : { kind: p.kind, id: p.id, index: i, shuffle });
   if (r.ok) { toast(r.count > 1 ? `En la TV (${plural(r.count, "canción", "canciones")})` : "En la TV"); setTimeout(poll, 2500); }
 }
-async function tracksToQueue(ids) {
-  const r = await post("/api/queue/add_tracks", { tracks: ids });
+async function tracksToQueue(ids, p = null) {
+  const r = await post("/api/queue/add_tracks", p ? { kind: p.kind, id: p.id } : { tracks: ids });
   if (r.ok) { toast(`A la fila: ${plural(r.added, "canción", "canciones")} (${r.count} en la fila)`); loadLibrary(); }
+}
+// Buscar en tu música (artistas, álbumes, listas y canciones); la sección sale solo si hay algo.
+let msearch = { q: "", r: null, timer: 0 };
+function musicSearch(q) {
+  if (msearch.q === q) return msearch.r;
+  msearch = { q, r: null, timer: 0 };
+  clearTimeout(musicSearch.timer);
+  musicSearch.timer = setTimeout(() => getJSON("/api/music/search?q=" + enc(q)).then(x => {
+    if (msearch.q !== q || !x.ok) return;
+    msearch.r = x;
+    if (route().name === "buscar") updateSearchResults();
+  }).catch(() => {}), 250);
+  return null;
+}
+function musicResults(q) {
+  const x = musicSearch(q);
+  if (!x) return null;
+  const ids = keepSongs(x.tracks);
+  const cards = [...x.artists.map(artistCircle), ...x.albums.map(albumCard), ...x.playlists.map(listCard),
+                 ...ids.map((_, i) => songCard(ids, i))];
+  return cards.length ? row("En tu música", cards, { key: "msearch", shape: "s" }) : null;
 }
 
 const PAGES = { inicio: pageHome, buscar: pageSearch, biblioteca: pageLibrary, peliculas: pageLibrary, series: pageLibrary,
@@ -3825,13 +4015,13 @@ function paintMini() {
 // El botón «Siguiente» solo si hay algo en la fila.
 function paintNextBtn() {
   const n = (lib && lib.queue || []).length;
-  const song = pl && pl.music && pl.i + 1 < pl.list.length && music ? music.tracks[pl.list[pl.i + 1]] : null;
+  const song = pl && pl.music && pl.i + 1 < pl.list.length ? songs[pl.list[pl.i + 1]] : null;
   $("plm-next").hidden = $("pl-nextq").hidden = !n && !song;
   $("plm-next").title = song ? `Siguiente: ${song.title}` : n ? `Siguiente de la fila: ${lib.queue[0].title}` : "";
 }
 // Una canción de tu música aquí: empieza abajo (como Spotify) con la portada; las demás de la lista siguen solas.
 function playMusicHere(ids, i = 0, start = 0, full = false) {
-  const t = music && music.tracks[ids[i]];
+  const t = songs[ids[i]];
   if (!t) return;
   if (pl) reportHere("stop");
   clearUpNext();
@@ -3878,7 +4068,7 @@ async function playNextInQueue(full = null) {
   if (!e) { toast("La fila está vacía."); if (pl) endedHere(); return; }
   if (full === true) $("player").classList.remove("mini");
   $("player").classList.remove("ended");
-  if (e.kind === "track") { if (!music) await loadMusic(); if (music && music.tracks[e.id]) playMusicHere([e.id], 0); }
+  if (e.kind === "track") { await ensureSongs([e.id]); if (songs[e.id]) playMusicHere([e.id], 0); }
   else if (e.kind === "yt") ytHere({ id: e.id, title: e.title, duration: e.duration || 0 }, 0);
   else if (lib.items[e.id]) { const it = lib.items[e.id]; playHere(e.id, progressOf(e.id), startAudio(it), startSub(it)); }
 }
@@ -3900,7 +4090,11 @@ function resumeHere(full) {
   if (!x) return closePlayer();
   if (full) $("player").classList.remove("mini");
   if (x.kind === "music") {
-    (music ? Promise.resolve() : loadMusic()).then(() => { if (music && music.tracks[x.id]) playMusicHere(x.list || [x.id], x.i || 0, x.t, full); });
+    const all = x.list || [x.id];   // las que sigan en tu música (pudo borrarse alguna)
+    ensureSongs(all).then(() => {
+      const list = all.filter(id => songs[id]);
+      if (songs[x.id]) playMusicHere(list, Math.max(0, list.indexOf(x.id)), x.t, full);
+    });
     return;
   }
   if (x.kind === "yt") ytHere({ id: x.id, title: x.title }, x.t);
@@ -4646,7 +4840,8 @@ async function poll() {
   if (document.visibilityState !== "visible") return;
   try {
     const s = await getJSON("/api/status");
-    setTv(s.roku || (s.teles || []).length ? "ok" : "off", [plural(s.items, "video", "videos") + " en la biblioteca", s.dubbing ? `preparando el doblaje de «${s.dubbing}»` : "", s.auto_subs?.text || ""]
+    const state = s.tele ? s.tele.estado : (s.roku || (s.teles || []).length ? "ok" : "off");
+    setTv(state, [state === "sin" ? TV_SIN : "", plural(s.items, "video", "videos") + " en la biblioteca", s.dubbing ? `preparando el doblaje de «${s.dubbing}»` : "", s.auto_subs?.text || ""]
       .filter(Boolean).join(" · "));
     setTeles(s.teles);
     if (lib && dubbingWas && !s.dubbing) loadLibrary();   // terminó un doblaje: la ficha ya trae la pista

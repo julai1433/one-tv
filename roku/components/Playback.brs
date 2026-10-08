@@ -561,8 +561,7 @@ sub playEntry(entry as Object)
         if t <> invalid
             playMusicCtx([t], 0, 0)
         else
-            m.musicWant = entry
-            loadMusic()
+            loadMusicTrack(entry.id)   ' no está aquí todavía: se pide solo esa
         end if
     else if entry.kind = "yt"
         rememberYt({id: entry.id, title: entry.title}, false)

@@ -1,49 +1,46 @@
-# One TV en Docker. Copia este archivo a tu NAS (o servidor), cambia las rutas marcadas con «CAMBIA» y arráncalo:
+# One TV en Docker, para un NAS (o cualquier Linux con Docker). Este es para Synology; en otro NAS cambia las dos rutas
+# marcadas con «CAMBIA» (abajo dice cuáles van en Unraid, QNAP y TrueNAS) y arráncalo:
 #
 #     docker compose up -d
 #
-# Guía paso a paso (Synology, Unraid, TrueNAS, QNAP y cualquier Linux): docs/INSTALAR-DOCKER.md
+# o pégalo como «proyecto» en la app de Docker de tu NAS. Luego abre http://IP-DEL-NAS:8765/bienvenida: ahí eliges
+# tus carpetas de videos y música, y la TV. Guía paso a paso: docs/INSTALAR-DOCKER.md
+# (Por terminal es más fácil todavía: instalar.sh reconoce el NAS y hace esto solo.)
 services:
   one-tv:
     image: ghcr.io/julai1433/one-tv:latest
     container_name: one-tv
 
-    # RED «host»: el contenedor usa la red del propio NAS en vez de una red aparte. Hace falta por dos razones:
-    #   1. Para encontrar el Roku. El Roku se busca con un aviso a toda la red de la casa, y ese aviso no pasa por la
-    #      red aparte que Docker crea normalmente.
-    #   2. Para que la TV llegue al servidor. El servidor le dice al Roku «búscame en tal dirección», y esa debe ser la
-    #      del NAS, no una interna de Docker.
-    # Con esta opción no se usa «ports»: la página queda en http://IP-DEL-NAS:8765 (el puerto se cambia con PUERTO).
+    # RED «host»: el contenedor usa la red del propio NAS. Hace falta para encontrar la TV (se busca con un aviso a toda
+    # la red de la casa) y para que la TV llegue al servidor por la dirección del NAS. Con ella no se usa «ports».
     network_mode: host
 
+    # Que arranque con el NAS y vuelva solo si algo falla (pero no si lo detienes tú a propósito).
+    restart: unless-stopped
+
     environment:
-      # Tu usuario del NAS, para que One TV pueda guardar sus datos en tu carpeta. En Synology o Linux se ve con el
-      # comando «id» (usuario y grupo). Unraid suele usar 99 y 100.
-      PUID: "1000"
-      PGID: "1000"
-      # Tu zona horaria (la hora que sale en el registro): https://es.wikipedia.org/wiki/Anexo:Zonas_horarias_de_la_base_de_datos_tz
-      TZ: "America/Mexico_City"
-      # El Roku. Con la contraseña del modo desarrollador (la que inventaste al activarlo), el servidor instala solo la
-      # app «One TV» en la TV. La IP es opcional: déjala vacía y la busca sola (por eso la red «host»).
-      ROKU_PASSWORD: ""
-      ROKU_IP: ""
+      # One TV lee como administrador, para poder abrir cualquier carpeta compartida que elijas en el navegador; como
+      # van de solo lectura (:ro, abajo), no puede cambiar ni borrar nada en ellas.
+      PUID: "0"
+      PGID: "0"
+      # Las carpetas compartidas que One TV puede ver (las mismas de «volumes», separadas con «:»). CAMBIA en otro NAS:
+      #   Unraid: /mnt/user · QNAP: /share · TrueNAS: /mnt/tu-pool
+      ONE_TV_COMPARTIDAS: /volume1
+      # Tu zona horaria (la hora del registro), opcional.
+      TZ: America/Mexico_City
+      # Opcional: el nombre con que lo muestra la TV si en la casa hay más de un One TV (por ejemplo «NAS de la sala»).
+      # NOMBRE: ""
       # PUERTO: "8765"       # solo si el 8765 ya lo usa otro programa del NAS
 
     volumes:
-      # Datos de One TV (lo que ya viste, favoritos, claves, caché de pósters y trozos de video). Si lo borras, se
-      # pierde. CAMBIA la ruta de la izquierda por una carpeta de tu NAS, por ejemplo /volume1/docker/one-tv.
-      - /ruta/en/tu/nas/one-tv:/datos
-      # Tus películas y series, de SOLO LECTURA (:ro): One TV nunca escribe ni borra nada ahí. CAMBIA la ruta.
-      - /ruta/en/tu/nas/peliculas:/biblioteca:ro
-      # Tu música (opcional). Si no tienes, borra esta línea.
-      - /ruta/en/tu/nas/musica:/musica:ro
-      # Otros ajustes (opcional): un archivo config.json dentro de la carpeta de datos (la primera línea de arriba).
-      # Las variables de arriba ganan si las llenas. Ver docs/INSTALAR-DOCKER.md.
+      # Datos de One TV (lo que ya viste, favoritos, tu configuración, pósters). CAMBIA en otro NAS:
+      #   Unraid: /mnt/user/appdata/one-tv · QNAP: /share/Container/one-tv · TrueNAS: /mnt/tu-pool/docker/one-tv
+      - /volume1/docker/one-tv:/datos
+      # Todas tus carpetas compartidas, de SOLO LECTURA y en la misma ruta que en el NAS. CAMBIA en otro NAS:
+      #   Unraid: /mnt/user:/mnt/user:ro · QNAP: /share:/share:ro · TrueNAS: /mnt/tu-pool:/mnt/tu-pool:ro
+      - /volume1:/volume1:ro
 
-    # El chip de video Intel (o AMD) del NAS convierte el video para la TV sin cansar el procesador. Si tu NAS no tiene
-    # la carpeta /dev/dri (muchos modelos con ARM no la tienen), borra estas dos líneas: funciona igual, con el procesador.
-    devices:
-      - /dev/dri:/dev/dri
-
-    # Que arranque con el NAS y vuelva a arrancar solo si algo falla (pero no si lo detienes tú a propósito).
-    restart: unless-stopped
+    # Opcional: el chip de video Intel o AMD del NAS convierte el video para la TV sin cansar el procesador. Quita el «#»
+    # de las dos líneas si tu NAS tiene la carpeta /dev/dri (si no la tiene, Docker no arranca el contenedor con ellas).
+    # devices:
+    #   - /dev/dri:/dev/dri

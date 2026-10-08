@@ -1,0 +1,81 @@
+# Al subir a main: arma los instaladores de doble clic (herramientas/armar_instaladores.sh) y los publica en la versión
+# de GitHub «instaladores», siempre la misma y con nombres fijos, para que el botón «Descargar One TV» de la página
+# (pagina/index.html) no cambie nunca:
+#   https://github.com/julai1433/one-tv/releases/download/instaladores/Instalar-One-TV-Mac.pkg
+#   https://github.com/julai1433/one-tv/releases/download/instaladores/Instalar-One-TV-Windows.cmd
+# No se marca como «la más nueva» (latest): esa es la de la app de la TV (app-tv.yml, …/releases/latest/download/…).
+# Solo se sube lo que cambió: el .pkg sale sin firmar y se firma después en la Mac del dueño (herramientas/firmar_mac.sh
+# --subir); así un cambio en el de Windows no reemplaza el .pkg ya firmado.
+# Los instaladores bajan instalar.sh y One TV de main al correr: no hace falta volver a armarlos por cada cambio.
+name: Instaladores
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "instaladores/**"
+      - "Instalar One TV.cmd"
+      - "herramientas/armar_instaladores.sh"
+      - ".github/workflows/instaladores.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # crear la versión y subir los archivos
+
+concurrency:
+  group: instaladores
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: macos-latest   # pkgbuild y productbuild solo existen en macOS
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ¿Qué cambió?
+        id: cambios
+        env:
+          ANTES: ${{ github.event.before }}
+        run: |
+          if [ "${{ github.event_name }}" = push ] && git cat-file -e "$ANTES^{commit}" 2>/dev/null; then
+            cambios="$(git diff --name-only "$ANTES" "$GITHUB_SHA")"
+          else
+            cambios="todo"   # a mano (workflow_dispatch) o primera vez: los dos
+          fi
+          cuales=""
+          if [ "$cambios" = todo ] || echo "$cambios" | grep -qE '^(instaladores/mac/|herramientas/armar_instaladores.sh|\.github/workflows/instaladores.yml)'; then
+            cuales="mac"
+          fi
+          if [ "$cambios" = todo ] || echo "$cambios" | grep -qE '^(Instalar One TV.cmd|herramientas/armar_instaladores.sh|\.github/workflows/instaladores.yml)'; then
+            cuales="$cuales windows"
+          fi
+          echo "cuales=$cuales" >> "$GITHUB_OUTPUT"
+          echo "Se arman: ${cuales:-nada}"
+
+      - name: Armar
+        if: steps.cambios.outputs.cuales != ''
+        run: herramientas/armar_instaladores.sh dist "${{ steps.cambios.outputs.cuales }}"
+
+      - name: Publicar en la versión «instaladores»
+        if: steps.cambios.outputs.cuales != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notas="Instaladores de doble clic de One TV, con nombres fijos (el botón de la página de descarga apunta aquí).
+
+          - Mac: Instalar-One-TV-Mac.pkg
+          - Windows: Instalar-One-TV-Windows.cmd
+          - Linux y NAS: wget -qO- https://raw.githubusercontent.com/julai1433/one-tv/main/instalar.sh | bash
+
+          Siempre instalan lo más nuevo de One TV. Guía: docs/instalar-un-paso.md"
+          if ! gh release view instaladores >/dev/null 2>&1; then
+            gh release create instaladores --target "$GITHUB_SHA" --latest=false \
+              --title "Instaladores de One TV" --notes "$notas"
+          fi
+          gh release upload instaladores dist/* --clobber
+          if echo "${{ steps.cambios.outputs.cuales }}" | grep -q mac; then
+            echo "::notice::El instalador de la Mac quedó sin firmar: fírmalo en la Mac con herramientas/firmar_mac.sh --subir"
+          fi

@@ -11,6 +11,8 @@ Uso:
     ./cine quitar-barra         quita el ícono de la barra de menú (solo macOS)
     ./cine instalar             solo instala/actualiza la app en el Roku
     ./cine catalogo             lista los videos y cómo llega cada uno a la TV
+    ./cine permitir-red         Windows: deja que la TV y el teléfono se conecten (la regla del firewall)
+    ./cine instalador           lo último que corre el instalador: arranque automático y la bienvenida en el navegador
 """
 
 import atexit
@@ -30,10 +32,12 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+import asistente
 import encoders
 import hostos
 import linuxservice
 import windowsservice
+import winfirewall
 from library import Library
 from roku import Roku, build_channel_zip, discover, local_ip_towards
 from teles import AndroidTv, Teles
@@ -65,6 +69,14 @@ from music import Music, default_roots
 
 PROJECT = Path(__file__).resolve().parent.parent
 CONFIG = hostos.CONFIG_FILE or PROJECT / "config.json"   # en Docker, dentro del volumen de datos
+CONFIG_LOCK = threading.Lock()
+# config.json: «bienvenida_hecha» es false mientras falte el asistente del navegador (/bienvenida), como lo deja el
+# primer arranque sin preguntas; true cuando se termina (o con ./cine configurar). Sin la clave (instalaciones de
+# antes), nunca se manda a la bienvenida.
+WELCOME = "bienvenida_hecha"
+# Lo que el instalador baja para One TV cuando la computadora no lo tiene (instalar.sh, en macOS): Python en
+# programas/python y ffmpeg y ffprobe en programas/bin. Nada fuera de la carpeta de One TV.
+PROGRAMS = PROJECT / "programas"
 # Carpetas: en macOS ~/Library/…; en Linux las de XDG (~/.cache, ~/.local/share, ~/.local/state). Ver mac/hostos.py.
 CACHE = hostos.CACHE
 
@@ -127,6 +139,82 @@ def load_config():
             except ValueError:
                 sys.exit(f"✗ La variable {var} no es válida: «{value}».")
     return cfg
+
+
+def write_config(cfg):
+    """Escribe config.json de una vez (un archivo nuevo que reemplaza al anterior: si algo se corta a la mitad, queda el
+    de antes) y solo para ti: puede tener contraseñas."""
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    tmp = CONFIG.with_name(CONFIG.name + ".nuevo")
+    tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        tmp.chmod(0o600)
+    except OSError:
+        pass
+    os.replace(tmp, CONFIG)
+
+
+def save_config(changes):
+    """Cambia algunas claves de config.json sin tocar las demás (lo usa la web: la bienvenida). -> lo que quedó."""
+    with CONFIG_LOCK:
+        try:
+            current = json.loads(CONFIG.read_text(encoding="utf-8-sig"))
+        except FileNotFoundError:
+            current = {}
+        current.update(changes)
+        write_config(current)
+        return current
+
+
+def default_config():
+    """La configuración del primer arranque, sin preguntar nada: la carpeta de películas y series de siempre (se crea
+    si no existe), el Roku se busca solo y la música, si la hay, se encuentra sola (mac/music.py). Lo demás lo termina
+    el asistente del navegador (/bienvenida) o, para quien lo prefiera, ./cine configurar."""
+    folder = hostos.default_library()
+    try:
+        port = int(os.environ.get("ONE_TV_PUERTO") or 8765)   # (otro puerto: las pruebas del instalador)
+    except ValueError:
+        port = 8765
+    cfg = {"carpetas": [folder], "puerto": port, "roku_ip": "", "roku_password": "", "titulos": {},
+           "opensubtitles": {"api_key": "", "usuario": "", "clave": ""}, WELCOME: False}
+    path = Path(folder).expanduser()
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        if has_videos(path) and not looks_like_one_tv(path):
+            cfg["solo_leer"] = {folder: True}   # ya tiene videos que no acomodó One TV: solo leerlos, por si acaso
+    except OSError:
+        pass   # la biblioteca lo dice al arrancar y el asistente deja elegir otra carpeta
+    return cfg
+
+
+def create_config_quietly():
+    """Primer arranque sin config.json: la crea con lo básico, sin preguntas en la Terminal. Si esta computadora ya
+    tenía One TV arrancando solo desde otra carpeta (por ejemplo, una copia hecha con git antes del instalador), usa
+    la configuración de ese servidor: si no, al ponerlo al día se pisaría con la de cero."""
+    theirs = SERVICE_HOME / "config.json"
+    if not hostos.CONTAINER and theirs.is_file() and theirs.resolve() != CONFIG.resolve():
+        try:
+            adopted = json.loads(theirs.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            adopted = None
+        if isinstance(adopted, dict):
+            CONFIG.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(theirs, CONFIG)
+            print(f"✓ Uso la configuración que ya tenía One TV en esta computadora ({hostos.tilde(theirs)}).\n",
+                  flush=True)
+            return adopted
+    cfg = default_config()
+    write_config(cfg)
+    print(f"✓ One TV quedó listo con lo básico: tus películas y series van en {cfg['carpetas'][0]}.")
+    print(f"  Lo demás (la TV, tu música…) se termina en el navegador: {welcome_url(cfg)}")
+    print(f"  (Si prefieres contestar unas preguntas aquí: {hostos.CINE} configurar)\n", flush=True)
+    return cfg
+
+
+def welcome_url(cfg, host="localhost"):
+    """Dónde abrir One TV: la bienvenida mientras falte terminar la configuración; si no, la página principal."""
+    base = f"http://{host}:{cfg['puerto']}"
+    return base + "/bienvenida" if cfg.get(WELCOME) is False else base
 
 
 MARK_OFFER = 8   # segundos que se ofrece «saltar» desde donde empieza el tramo
@@ -242,11 +330,16 @@ class App:
                                        original_langs=self.metadata.original_langs, store=self.store,
                                        organizer=self.organizer, aligner=self.subsync, log=say)
         self.iphone_url = None
+        self.network_blocked = False   # Windows: el firewall no deja entrar a la TV ni al teléfono (mac/winfirewall.py)
         self._because = None   # {"at", "seeds", "data"} de «porque viste»
         self._because_busy = False
         self._because_lock = threading.Lock()
         self._player = (0.0, None)
         self._player_lock = threading.Lock()
+        # El asistente del navegador (/bienvenida): carpetas, TV y extras, aplicados sin reiniciar (mac/asistente.py).
+        self.asistente = asistente.Asistente(self, save_config, PROJECT, tailscale_url=tailscale_url,
+                                             tailscale_cli=tailscale_cli, tailscale_serve=tailscale_serve,
+                                             autostart=service_installed, log=say)
 
     # ---------- Roku ----------
 
@@ -526,7 +619,7 @@ class App:
             return {"ok": False, "error": str(e)}
         tele = self._tele()
         if not tele:
-            return {"ok": False, "error": self._sin_tele()}
+            return {"ok": False, "error": self._sin_tele(roku=True)}
         if isinstance(tele, AndroidTv):
             return {"ok": False, "error": f"«Varios a la vez» todavía solo funciona en el Roku (no en «{tele.nombre}»)."}
         result = self.mosaic_start(body)
@@ -606,8 +699,8 @@ class App:
         s = self.music_sessions.get(sid)
         if not s:
             return {"ok": False, "error": "Esa lista ya no está."}
-        pub = self.music.public()["tracks"]
-        return {"ok": True, "index": s["index"], "start": s.get("start", 0), "tracks": [pub[t] for t in s["tracks"] if t in pub]}
+        tracks = self.music.tracks_pub(s["tracks"])   # solo esas (no toda la música: puede ser enorme)
+        return {"ok": True, "index": s["index"], "start": s.get("start", 0), "tracks": tracks}
 
     def keep_avatars(self):
         """Tarea automática: baja de a poco las fotos que falten de «Tus canales» (al arrancar y una vez al día), para
@@ -1447,11 +1540,47 @@ class App:
         except OSError:
             return {"ok": False}
 
+    # ---------- la bienvenida (el asistente del primer arranque, en el navegador) ----------
+
+    def welcome_pending(self):
+        return (getattr(self, "cfg", None) or {}).get(WELCOME) is False
+
+    def welcome_done(self, done=True):
+        """El asistente terminó (o se vuelve a abrir): se guarda en config.json para que la página principal ya no
+        mande a /bienvenida."""
+        try:
+            save_config({WELCOME: bool(done)})
+        except (OSError, ValueError) as e:
+            return {"ok": False, "error": f"No se pudo guardar la configuración: {e}"}
+        self.cfg[WELCOME] = bool(done)
+        return {"ok": True, "pendiente": self.welcome_pending()}
+
+    def watch_firewall(self, every=300):
+        """Windows: si el firewall no deja entrar a la TV ni al teléfono, lo dice en el registro y en /api/status
+        («red_bloqueada»), y vuelve a revisar cada 5 minutos hasta que se arregle (con «cine permitir-red»)."""
+        if only_this_computer(self.cfg):
+            return   # solo para esta computadora: no hay nada que abrir
+        while True:
+            blocked = winfirewall.status(self.cfg["puerto"])
+            if blocked and not self.network_blocked:
+                say(f"⚠ {winfirewall.BLOCKED}")
+            elif blocked is False and self.network_blocked:
+                say("✓ Windows ya deja que la TV y el teléfono se conecten.")
+            self.network_blocked = bool(blocked)
+            if not blocked:
+                return
+            time.sleep(every)
+
     def status(self):
         out = {"roku": self.roku.ip if self.roku else None, "server": self.server_url,
                "items": len(self.library.items), "iphone": self.iphone_url, "playing": self.playing(),
                "queue": len(self.queue.items()), "dubbing": self.dubbing.current,
-               "auto_subs": self.auto_subs.status() if getattr(self, "auto_subs", None) else None}
+               "auto_subs": self.auto_subs.status() if getattr(self, "auto_subs", None) else None,
+               "bienvenida_pendiente": self.welcome_pending(),
+               "red_bloqueada": bool(getattr(self, "network_blocked", False)),
+               # El nombre de esta computadora: con más de una con One TV en la casa, la app de la TV pregunta cuál.
+               "nombre": self.computer_name(),
+               "sin_permiso": self.unreadable_folders()}
         teles = getattr(self, "teles", None)
         if teles:   # las TV que se pueden usar (con más de una, la web deja elegir a cuál mandar)
             out["teles"] = teles.lista(self.roku, getattr(self, "roku_name", ""))
@@ -1459,7 +1588,45 @@ class App:
             if now and len(out["teles"]) > 1:   # con varias TV, en cuál se está viendo («En la TV · Sala»)
                 tele = self._tele(now)
                 out["playing"]["donde"] = tele.nombre if isinstance(tele, AndroidTv) else (self.roku_name or "Roku")
+        out["tele"] = self.tv_state(out.get("teles"))
         return out
+
+    def computer_name(self):
+        """El nombre que ve la TV: el de config.json o la variable NOMBRE (contenedor), o el de la computadora."""
+        return str(getattr(self, "cfg", {}).get("nombre") or "").strip()[:60] or hostos.computer_name()
+
+    def unreadable_folders(self):
+        """[{carpeta, tipo, que_hacer}] de las carpetas de videos y de música que One TV no tiene permiso de leer
+        (la web lo dice, y la TV avisa en lugar de decir solo «no hay videos»)."""
+        library = getattr(self, "library", None)
+        found = getattr(library, "unreadable", None)
+        out = [{"carpeta": c, "tipo": "videos"} for c in (found if isinstance(found, list) else [])]
+        roots = getattr(getattr(self, "music", None), "roots", None)
+        for root in roots if isinstance(roots, list) else []:
+            try:
+                if root.is_dir() and not os.access(root, os.R_OK | os.X_OK):
+                    out.append({"carpeta": str(root), "tipo": "música"})
+            except OSError:
+                pass
+        for x in out:
+            x["que_hacer"] = hostos.unreadable_hint()
+        return out
+
+    def tv_state(self, teles=None):
+        """Cómo está la TV, para la barra de la web: «ok» (con su nombre) si hay una con la que se puede hablar (el Roku
+        que se encontró o una TV con Android con One TV abierta), «off» si hay un Roku anotado que no aparece y «sin» si
+        no hay ninguna (no es un error: quizá la casa no tiene Roku, o la app de la TV está cerrada)."""
+        roku = getattr(self, "roku", None)
+        roku_ok = roku is not None and bool(getattr(self, "roku_name", ""))   # contestó al menos una vez
+        listas = [t for t in teles or [] if t.get("tipo") != "roku" or roku_ok]
+        if not teles and roku_ok:
+            listas = [{"nombre": self.roku_name, "elegida": True}]
+        if listas:
+            t = next((t for t in listas if t.get("elegida")), listas[0])
+            return {"estado": "ok", "nombre": t["nombre"]}
+        if roku is not None or getattr(self, "cfg", {}).get("roku_ip"):
+            return {"estado": "off", "nombre": "Roku"}
+        return {"estado": "sin"}
 
     # ---------- a qué TV: el Roku o una con Android (mac/teles.py) ----------
 
@@ -1477,11 +1644,14 @@ class App:
         teles = getattr(self, "teles", None)
         return teles is None or not teles.es_android(now.get("device_id"))
 
-    def _sin_tele(self):
+    def _sin_tele(self, roku=False):
+        """Por qué no se pudo mandar a la TV. roku=True: algo que solo hace el Roku («varios a la vez»)."""
         teles = getattr(self, "teles", None)
-        if teles and teles.vistas:
+        if teles and teles.vistas and not roku:
             return "No encontré la TV: abre One TV en la TV y prueba otra vez."
-        return "No encontré el Roku en la red."
+        if roku or teles is None or getattr(self, "cfg", {}).get("roku_ip"):
+            return "No encontré el Roku en la red."
+        return "No hay ninguna TV conectada: abre One TV en la TV y prueba otra vez."
 
     def _no_respondio(self, tele, e):
         if isinstance(tele, AndroidTv):
@@ -1562,6 +1732,8 @@ def run_server(background):
     threading.Thread(target=app.watch_downloads, daemon=True).start()
     threading.Thread(target=app.keep_account_fresh, daemon=True).start()
     threading.Thread(target=app.keep_avatars, daemon=True).start()
+    if hostos.WINDOWS:   # ¿deja Windows entrar a la TV y al teléfono? (mac/winfirewall.py)
+        threading.Thread(target=app.watch_firewall, daemon=True).start()
     app.offline.start()   # la cola de videos guardados sin conexión
     atexit.register(app.offline.stop)
 
@@ -1636,16 +1808,53 @@ def sync_service_files():
             shutil.rmtree(dst, ignore_errors=True)
             shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", ".DS_Store"))
             changed = True
-    if not (SERVICE_HOME / "config.json").exists() or not filecmp.cmp(CONFIG, SERVICE_HOME / "config.json", shallow=False):
-        shutil.copy2(CONFIG, SERVICE_HOME / "config.json")
-        changed = True
+    theirs = SERVICE_HOME / "config.json"
+    if not theirs.exists() or not filecmp.cmp(CONFIG, theirs, shallow=False):
+        if theirs.exists() and theirs.stat().st_mtime > CONFIG.stat().st_mtime:
+            # El servidor la cambió después (la bienvenida, en el navegador): esa es la buena. Se trae aquí en vez de
+            # pisarla con la de antes; el servidor ya la tiene, así que no hace falta reiniciarlo por esto.
+            shutil.copy2(theirs, CONFIG)
+        else:
+            shutil.copy2(CONFIG, theirs)
+            changed = True
     return changed
+
+
+def own_python():
+    """¿Esto corre con el Python que el instalador bajó para One TV (programas/python)?"""
+    try:
+        return PROGRAMS in Path(sys.executable).resolve().parents
+    except OSError:
+        return False
+
+
+def service_python():
+    """El Python del servidor de fondo: el que corre esto. Si es el mismo que «python3» del PATH, con esa ruta (con
+    Homebrew, la que sobrevive a sus actualizaciones; la de sys.executable lleva la versión). Nunca otro: en una Mac
+    sin las herramientas de Xcode, /usr/bin/python3 no es Python de verdad."""
+    if own_python():
+        return sys.executable
+    found = shutil.which("python3")
+    try:
+        if found and os.path.samefile(found, sys.executable):
+            return found
+    except OSError:
+        pass
+    return sys.executable
+
+
+def service_path(default):
+    """El PATH del servidor de fondo: primero programas/bin (el ffmpeg que bajó el instalador), si existe."""
+    own = str(PROGRAMS / "bin")
+    if not Path(own).is_dir() or own in default.split(os.pathsep):
+        return default
+    return f"{own}{os.pathsep}{default}" if default else own
 
 
 def write_plist():
     if hostos.WINDOWS:   # la tarea del Programador de tareas (con el Python que corre esto: «python3» puede no existir)
         return windowsservice.write(sys.executable, SERVICE_HOME, SERVICE_LOG)
-    python = shutil.which("python3") or sys.executable
+    python = service_python()
     if not hostos.MAC:   # Linux: la unidad de systemd
         return linuxservice.write(python, SERVICE_HOME / "mac" / "cine.py", SERVICE_HOME, SERVICE_LOG)
     SERVICE_PLIST.parent.mkdir(parents=True, exist_ok=True)
@@ -1654,7 +1863,7 @@ def write_plist():
         "Label": SERVICE_LABEL,
         "ProgramArguments": [python, str(SERVICE_HOME / "mac" / "cine.py"), "servir"],
         "WorkingDirectory": str(SERVICE_HOME),
-        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "EnvironmentVariables": {"PATH": service_path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"),
                                  "PYTHONUNBUFFERED": "1"},
         "RunAtLoad": True,
         "KeepAlive": True,
@@ -1820,6 +2029,110 @@ def update_service(cfg):
         install_menubar()
 
 
+# ---------- lo último del instalador (instalar.sh, windows/instalar.ps1) ----------
+
+DETACHED_PID = SERVICE_HOME / "servidor-suelto.pid"   # el servidor de fondo sin arranque automático (start_detached)
+
+
+def _is_our_server(pid):
+    """¿Ese proceso es un servidor de One TV? (el número de un .pid viejo puede ser ya de otro programa)"""
+    if hostos.WINDOWS:
+        try:
+            import winapi
+            return winapi.process_alive(pid)
+        except (OSError, AttributeError, ImportError):
+            return False
+    out = hostos.command_line(pid)
+    return "cine.py" in out and "servir" in out
+
+
+def start_detached(cfg):
+    """El servidor de fondo, sin arranque automático (las pruebas del instalador, o un Linux sin systemd): sigue
+    corriendo aunque se cierre la ventana, hasta apagar la computadora. Si ya había uno así, lo cambia por el nuevo."""
+    port = cfg["puerto"]
+    try:
+        old = int(DETACHED_PID.read_text().strip())
+    except (OSError, ValueError):
+        old = None
+    if old and _is_our_server(old):
+        try:
+            os.kill(old, signal.SIGTERM)
+        except OSError:
+            pass
+        end = time.time() + 20
+        while server_answers(port, timeout=0.5) and time.time() < end:
+            time.sleep(0.5)
+    if server_answers(port):
+        sys.exit(f"✗ Ya hay un One TV abierto en otra ventana (puerto {port}). Ciérralo con Ctrl+C y vuelve a "
+                 "correr el instalador.")
+    SERVICE_HOME.mkdir(parents=True, exist_ok=True)
+    SERVICE_LOG.parent.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "PATH": service_path(os.environ.get("PATH", ""))}
+    # Aparte de esta ventana: que cerrarla (o Ctrl+C) no lo apague. En Windows: DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP.
+    kw = {"creationflags": 0x00000008 | 0x00000200} if hostos.WINDOWS else {"start_new_session": True}
+    with open(SERVICE_LOG, "ab") as log:
+        proc = subprocess.Popen([sys.executable, str(PROJECT / "mac" / "cine.py"), "servir"], cwd=str(PROJECT),
+                                env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, **kw)
+    DETACHED_PID.write_text(str(proc.pid))
+    return proc.pid
+
+
+def only_this_computer(cfg):
+    """¿El servidor escucha solo para esta computadora? (config «escuchar»: "127.0.0.1")"""
+    return str(cfg.get("escuchar") or "").startswith(("127.", "localhost"))
+
+
+def open_network(cfg, say=print):
+    """Windows: que la TV y el teléfono puedan entrar (la regla «One TV» del firewall; una sola petición de permiso).
+    -> True si pueden (o no hace falta)."""
+    if not hostos.WINDOWS or only_this_computer(cfg):
+        return True
+    return winfirewall.ensure(cfg["puerto"], say=say)
+
+
+def finish_install(cfg):
+    """Lo último del instalador: deja el servidor corriendo y arrancando solo con la computadora (o lo actualiza si ya
+    estaba), y abre el navegador en la bienvenida (o en la página principal, si ya se terminó)."""
+    port = cfg["puerto"]
+    open_network(cfg, say=say)
+    skip = os.environ.get("ONE_TV_SIN_AUTOARRANQUE") == "1"   # las pruebas: nunca un servicio de arranque de verdad
+    problem = "" if skip or hostos.MAC else _service().problem()
+    if skip or problem:
+        if problem:
+            say(f"· {problem}")
+            say("  Por ahora lo dejo corriendo de fondo hasta que apagues la computadora.")
+        start_detached(cfg)
+        auto = False
+    elif service_installed():
+        say("Poniendo al día el servidor…")
+        update_service(cfg)
+        auto = True
+    else:
+        say("Dejando el servidor corriendo y arrancando solo con la computadora…")
+        install_service(cfg)
+        auto = True
+    say("Esperando a que arranque el servidor (la primera vez revisa la biblioteca)…")
+    st = wait_for_server(port, 180)
+    if not st:
+        sys.exit(f"✗ El servidor no arrancó. Lo que pasó está en el registro: {SERVICE_LOG}\n"
+                 f"  Vuelve a correr el instalador; si sigue igual, abre {hostos.CINE} para verlo en la ventana.")
+    cfg = load_config()   # (la bienvenida pudo haberse terminado en el navegador: sync_service_files la trajo)
+    local = welcome_url(cfg)
+    lan_base = hostos.lan_url(port)
+    lan = lan_base + local[len(f"http://localhost:{port}"):] if lan_base else None
+    when = ("arranca solo con la computadora" if auto else "queda corriendo hasta que apagues la computadora")
+    print(f"""
+──────────────────────────────────────────────
+  ✓ One TV está funcionando y {when}.
+
+  Ábrelo en el navegador:  {local}""" + (f"\n  Desde el teléfono u otro aparato de la casa:  {lan}" if lan else "") + """
+──────────────────────────────────────────────""", flush=True)
+    if os.environ.get("CINE_NO_BROWSER") == "1":
+        return
+    if not hostos.open_browser(local):
+        print("  (Esta computadora no tiene pantalla: abre la dirección de arriba desde otro aparato de la casa.)")
+
+
 def print_status(cfg, st=None):
     st = st or server_answers(cfg["puerto"])
     pid = service_pid()
@@ -1844,6 +2157,8 @@ def print_status(cfg, st=None):
     if auto and not hostos.MAC and not hostos.WINDOWS and not linuxservice.lingering():
         print("  Arranca solo cuando inicias sesión. Para que arranque al encender la computadora:\n"
               f"    {linuxservice.linger_command()}")
+    if hostos.WINDOWS and not only_this_computer(cfg) and winfirewall.status(cfg["puerto"]):
+        print(f"\n⚠ {winfirewall.BLOCKED}")
 
 
 # ---------- ícono en la barra de menú ----------
@@ -1947,19 +2262,32 @@ def tailscale_url(port):
     return None
 
 
-def setup_tailscale(cfg):
+def tailscale_serve(port):
+    """Publica la página en tu red Tailscale con https (solo tus aparatos). -> (dirección, "") o (None, lo que pasó).
+    La usan «./cine tailscale» y el asistente del navegador («Fuera de casa»)."""
     cli = tailscale_cli()
     if not cli:
-        sys.exit("✗ No encontré Tailscale en esta computadora.")
-    url = tailscale_url(cfg["puerto"])
-    if not url:
-        r = subprocess.run([cli, "serve", "--bg", f"--https={TAILSCALE_PORT}", f"http://127.0.0.1:{cfg['puerto']}"],
+        return None, "No encontré Tailscale en esta computadora."
+    url = tailscale_url(port)
+    if url:
+        return url, ""
+    try:
+        r = subprocess.run([cli, "serve", "--bg", f"--https={TAILSCALE_PORT}", f"http://127.0.0.1:{port}"],
                            capture_output=True, text=True, timeout=30)
-        url = tailscale_url(cfg["puerto"])
-        if not url:
-            hint = "" if hostos.MAC or hostos.WINDOWS else ("\n  Si dice que no tienes permiso, dáselo a tu usuario una vez con:  "
-                                          "sudo tailscale set --operator=$USER")
-            sys.exit("✗ Tailscale no aceptó la configuración:\n" + (r.stdout + r.stderr).strip() + hint)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, str(e)
+    url = tailscale_url(port)
+    return (url, "") if url else (None, (r.stdout + r.stderr).strip())
+
+
+def setup_tailscale(cfg):
+    if not tailscale_cli():
+        sys.exit("✗ No encontré Tailscale en esta computadora.")
+    url, error = tailscale_serve(cfg["puerto"])
+    if not url:
+        hint = "" if hostos.MAC or hostos.WINDOWS else ("\n  Si dice que no tienes permiso, dáselo a tu usuario una vez con:  "
+                                      "sudo tailscale set --operator=$USER")
+        sys.exit("✗ Tailscale no aceptó la configuración:\n" + error + hint)
     print(f"✓ Página disponible en tu red Tailscale (solo tus dispositivos):\n  {url}")
     print("  En el iPhone: ábrela en Safari → Compartir → «Añadir a pantalla de inicio».")
 
@@ -2070,8 +2398,8 @@ def configure_first_time():
         cfg["solo_leer"] = read_only
     cfg.setdefault("titulos", {})
     cfg.setdefault("opensubtitles", {"api_key": "", "usuario": "", "clave": ""})
-    CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
-    CONFIG.chmod(0o600)   # tiene contraseñas: solo para ti
+    cfg[WELCOME] = True   # configurado aquí: la página principal ya no manda a la bienvenida
+    write_config(cfg)   # (solo para ti: tiene contraseñas)
     print(f"✓ Guardé la configuración en {CONFIG}")
     mine = LibraryFolders(cfg["carpetas"], cfg.get("solo_leer"), DATA / "carpetas.json", log=lambda *_: None).own(path)
     if mine is False:
@@ -2116,9 +2444,9 @@ def main():
         configure_first_time()
         print(f"\nSiguiente paso: corre  {hostos.CINE}  para arrancar (guía completa en {hostos.guide()}).")
         return
-    if cmd != "servir" and not CONFIG.exists() and cmd in ("iniciar", "catalogo", "tailscale", "autoarranque", "instalar"):
-        configure_first_time()   # primer arranque: sin config.json no se puede hacer nada más
-        print()
+    if cmd != "servir" and not CONFIG.exists() and cmd in ("iniciar", "catalogo", "tailscale", "autoarranque", "instalar",
+                                                         "instalador", "permitir-red"):
+        create_config_quietly()   # primer arranque: lo básico sin preguntas; lo demás, en el navegador (/bienvenida)
     cfg = load_config()
 
     if cmd == "servir":  # lo usa launchd
@@ -2140,7 +2468,16 @@ def main():
         return print("✓ Ícono quitado de la barra de menú.")
     if cmd == "estado":
         return print_status(cfg)
+    if cmd == "instalador":
+        return finish_install(cfg)
+    if cmd == "permitir-red":
+        if not hostos.WINDOWS:
+            return print(f"· Esto solo hace falta en Windows: en {hostos.SYSTEM} la TV y el teléfono ya pueden conectarse.")
+        if winfirewall.status(cfg["puerto"]) is False:
+            return print("✓ Windows ya deja que la TV y el teléfono se conecten a esta computadora.")
+        return None if winfirewall.ensure(cfg["puerto"], say=print) else sys.exit(1)
     if cmd == "autoarranque":
+        open_network(cfg)   # Windows: que la TV y el teléfono puedan entrar (una sola petición de permiso)
         install_service(cfg)
         when = ("se encienda la computadora" if not hostos.MAC and not hostos.WINDOWS and linuxservice.lingering()
                 else "inicies sesión en la computadora")

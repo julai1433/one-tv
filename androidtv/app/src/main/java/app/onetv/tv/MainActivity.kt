@@ -39,7 +39,7 @@ import java.util.UUID
  * de [Estado], y todas las teclas del control llegan a [Estado.tecla] (como en el Roku).
  *
  * Para pruebas se le puede dar la dirección del servidor al abrirla (`--es servidor http://…`, como el «server» del Roku)
- * o el puerto donde buscarlo en la red (`--ei puerto 8797`). Como en el Roku, `--es contentId yt:<video>` o el id de una
+ * o el puerto donde buscarlo en la red (`--ei puerto 8797`, o varios: `--eia puertos 8804,8805`). Como en el Roku, `--es contentId yt:<video>` o el id de una
  * película abre la app reproduciéndolo.
  */
 @UnstableApi
@@ -57,9 +57,11 @@ class MainActivity : ComponentActivity() {
         }
         estado = Estado(lifecycleScope, prefs, deviceId, ::direccionesPropias) { finish() }
         intent?.getStringExtra("servidor")?.takeIf { it.isNotBlank() }?.let { estado.fijada = it.trimEnd('/') }
-        intent?.getIntExtra("puerto", 0)?.takeIf { it > 0 }?.let { estado.puertoBusqueda = it }
+        intent?.getIntExtra("puerto", 0)?.takeIf { it > 0 }?.let { estado.puertosBusqueda = listOf(it) }
+        intent?.getIntArrayExtra("puertos")?.filter { it > 0 }?.takeIf { it.isNotEmpty() }?.let { estado.puertosBusqueda = it }
         intent?.getStringExtra("contentId")?.takeIf { it.isNotBlank() }?.let { estado.pendiente = it }
         control = Control(estado, nombreDeLaTv(this), versionPropia(this))
+        estado.cambioDeComputadora = { anterior -> control.reiniciar(anterior) }
         player = ExoPlayer.Builder(this).build()
         estado.reproductor.player = player
         val fonts = Fonts(assets)

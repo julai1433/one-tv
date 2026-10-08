@@ -94,6 +94,8 @@ sub init()
     for each view in [m.rows, m.grid, m.search, m.pageRows, m.pageGrid]
         view.observeField("event", "onViewEvent")
     end for
+    m.rows.observeField("focus", "onMusicRowsFocus")          ' Música: más artistas o álbumes al llegar al final (Music.brs)
+    m.pageGrid.observeField("focusIndex", "onMusicGridFocus")  ' y más canciones al bajar por un álbum, artista o lista
     m.menu.observeField("event", "onMenuEvent")
     m.detail.observeField("event", "onDetailEvent")
     m.player.observeField("event", "onPlayerEvent")
@@ -227,7 +229,13 @@ sub onLibrary(event as Object)
     if m.lib.queue <> invalid then queued = m.lib.queue.Count()
     m.menu.badge = queued
     if first then hideToast()
-    if m.lib.items.Count() = 0 then showToast("No hay videos. Revisa «carpetas» en config.json de la computadora.", false)
+    if m.lib.items.Count() = 0   ' sin nombres de archivos ni comandos: qué pasa y qué hacer (como la app de Google TV)
+        if m.lib.sin_permiso <> invalid and m.lib.sin_permiso.Count() > 0
+            showToast("La computadora no puede leer tu carpeta de videos: abre One TV en ella y verás qué hacer.", false)
+        else
+            showToast("No hay videos todavía: copia tus películas y series a la carpeta de videos de la computadora.", false)
+        end if
+    end if
     refreshView()
     loadYouTubeHome()
     if first then loadMusic()   ' Music.brs

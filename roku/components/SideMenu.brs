@@ -58,7 +58,7 @@ sub init()
         count.height = 72
         count.visible = false
         m.rows.Push({fill: fill, icon: icon, label: label, count: count})
-        y = y + 86
+        y = y + 80   ' con 9 secciones y 86 de separación, la última pisaba el estado de la computadora (abajo, en 900)
     end for
     onStatus()
 end sub

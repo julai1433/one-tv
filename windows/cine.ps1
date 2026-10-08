@@ -1,7 +1,7 @@
 ﻿# One TV en Windows: hace lo mismo que el archivo «cine» en macOS y Linux. Lo abre cine.cmd (doble clic) con lo que
 # le escribas después: cine | cine configurar | cine autoarranque | cine quitar-autoarranque | cine estado | ...
 # Antes revisa que estén Python (3.9 o más nuevo) y ffmpeg; si falta alguno, dice el comando exacto para instalarlo
-# y ofrece instalarlo con winget (con solo contestar «s»).
+# y ofrece instalarlo con winget (con solo contestar «s»; desde el instalador, sin preguntar).
 # (Este archivo va en UTF-8 con BOM: así Windows PowerShell 5.1 lee bien los acentos.)
 param([Parameter(ValueFromRemainingArguments = $true)] [string[]] $Resto)
 
@@ -65,6 +65,10 @@ function Buscar-Python {
 
 function Preguntar([string] $pregunta) {
     if ($env:ONE_TV_SIN_PREGUNTAS) { return $false }   # (las pruebas automáticas: nunca instala nada)
+    if ($env:ONE_TV_INSTALAR) {   # lo corre el instalador (windows\instalar.ps1): ya dijiste que sí al instalar
+        Write-Host '  Instalándolo…'
+        return $true
+    }
     try { $r = Read-Host $pregunta } catch { return $false }
     return ($r -match '^\s*(s|si|sí|y|yes)\s*$')
 }

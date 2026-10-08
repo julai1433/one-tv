@@ -71,7 +71,8 @@ CONFIG_HOME = _xdg("XDG_CONFIG_HOME", ".config")
 CONFIG_FILE = SERVICE_HOME / "config.json" if CONTAINER else None   # None: el config.json de la carpeta del programa
 
 # Dentro del contenedor, lo que se puede poner con variables de entorno (ganan sobre config.json): variable -> clave.
-ENV_CONFIG = {"ROKU_IP": "roku_ip", "ROKU_PASSWORD": "roku_password", "PUERTO": "puerto", "CODIFICADOR": "codificador"}
+ENV_CONFIG = {"ROKU_IP": "roku_ip", "ROKU_PASSWORD": "roku_password", "PUERTO": "puerto", "CODIFICADOR": "codificador",
+              "NOMBRE": "nombre"}
 
 MAC_DIRS = {"DOWNLOAD": "Downloads", "VIDEOS": "Movies", "MUSIC": "Music"}
 LINUX_DIRS = {"DOWNLOAD": "Downloads", "VIDEOS": "Videos", "MUSIC": "Music"}
@@ -122,6 +123,46 @@ def lan_url(port):
     finally:
         s.close()
     return None if ip.startswith("127.") else f"http://{ip}:{port}"
+
+
+_NOMBRE = None
+
+
+def computer_name():
+    """El nombre de esta computadora, como lo ve la persona: en macOS el de Ajustes › General › Información («MacBook
+    de Ana»); en Windows y Linux, el del equipo (sin «.local»). En un contenedor, su nombre de equipo, salvo que sea el
+    número que Docker pone solo (entonces «Contenedor»; se cambia con la variable NOMBRE). Lo usa la app de la TV para
+    distinguir una computadora de otra si hay más de una con One TV."""
+    global _NOMBRE
+    if _NOMBRE is None:
+        name = ""
+        if MAC and not CONTAINER:
+            try:
+                name = subprocess.run(["scutil", "--get", "ComputerName"], capture_output=True, text=True,
+                                      timeout=3).stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if not name and WINDOWS and not CONTAINER:
+            name = os.environ.get("COMPUTERNAME", "")
+        if not name:
+            name = socket.gethostname()
+        name = re.sub(r"\.(local|lan|home|localdomain)$", "", name.strip(), flags=re.I)
+        if CONTAINER and re.fullmatch(r"[0-9a-f]{12}|[0-9a-f]{64}", name):
+            name = "Contenedor"
+        _NOMBRE = name or "Computadora"
+    return _NOMBRE
+
+
+def unreadable_hint():
+    """Qué hacer cuando One TV no tiene permiso de leer una carpeta (de videos o de música), en una frase."""
+    if CONTAINER:
+        return "Pon en PUID y PGID el usuario dueño de esa carpeta, o dale permiso de lectura."
+    if MAC:
+        return ("Muévela a tu carpeta personal (Películas o Música), o en Ajustes del Sistema › Privacidad y seguridad › "
+                "Acceso total al disco activa «python3» (es One TV).")
+    if WINDOWS:
+        return "Dale permiso de lectura a tu usuario: clic derecho en la carpeta › Propiedades › Seguridad."
+    return "Dale permiso de lectura a tu usuario en esa carpeta."
 
 
 def open_browser(url):
@@ -261,6 +302,37 @@ def pause_process(proc, pause):
             os.kill(proc.pid, signal.SIGSTOP if pause else signal.SIGCONT)
     except (ProcessLookupError, OSError):
         pass
+
+
+def command_line(pid):
+    """Cómo se arrancó ese proceso (programa y argumentos, separados por espacios), o "" si no se puede saber. Sin
+    «ps»: en Linux, /proc; en macOS, se le pregunta al sistema (sysctl KERN_PROCARGS2). Solo procesos propios."""
+    if LINUX:
+        try:
+            return Path(f"/proc/{int(pid)}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+        except (OSError, ValueError):
+            return ""
+    if not MAC:
+        return ""
+    try:
+        import ctypes
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        mib = (ctypes.c_int * 3)(1, 49, int(pid))   # CTL_KERN, KERN_PROCARGS2, pid
+        size = ctypes.c_size_t(0)
+        if libc.sysctl(mib, 3, None, ctypes.byref(size), None, ctypes.c_size_t(0)) != 0 or not size.value:
+            return ""
+        buf = ctypes.create_string_buffer(size.value)
+        if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, ctypes.c_size_t(0)) != 0:
+            return ""
+    except (OSError, AttributeError, ValueError):
+        return ""
+    # Viene: cuántos argumentos (4 bytes), el programa, ceros de relleno, los argumentos y después el entorno (que
+    # no se mira: solo hasta el último argumento).
+    raw = buf.raw[:size.value]
+    argc = int.from_bytes(raw[:4], sys.byteorder)
+    _program, _, rest = raw[4:].partition(b"\0")
+    args = rest.lstrip(b"\0").split(b"\0")[:argc]
+    return " ".join(a.decode("utf-8", "replace") for a in args)
 
 
 def stop_leftovers(folder):

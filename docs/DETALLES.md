@@ -8,6 +8,25 @@ instalar, ver [INSTALAR.md](INSTALAR.md); para usarlo, el [README](../README.md)
 y la app de TV es para **Roku**; lo que depende de uno u otro lo dice el título o la frase («macOS», «Roku»), y lo demás
 vale para cualquier sistema o TV. Lo que viene está en la [hoja de ruta](HOJA_DE_RUTA.md).
 
+## Teclas de la TV
+
+Con el control remoto del Roku (otras TV tendrán su equivalente):
+
+| Tecla | En las filas | Viendo algo |
+|---|---|---|
+| **OK** | abre la ficha | pausa o sigue |
+| **▶** | reproduce sin abrir la ficha | pausa o sigue |
+| **▼** | moverse | muestra la barra de avance; otra vez, el panel: «Siguiente de la fila», «Audio y subtítulos», la fila y lo visto (con música, canción anterior y siguiente) |
+| **▲** | moverse | del panel a la barra; de la barra, oculta todo |
+| **‹ ›** | moverse | el primer toque muestra la barra; después te mueves en ella (por capítulos si el video los tiene; si no, cada vez más rápido) |
+| **⏪ ⏩** | una pantalla arriba o abajo | −15 s / +15 s |
+| **\*** | opciones de esa tarjeta: verla, a la fila, a una lista, «No me interesa», «Silenciar canal» | (el Roku la usa para sus propios ajustes) |
+| **Atrás** | cierra lo de encima; en una sección, abre el menú | oculta la barra o el panel; después sale (se guarda dónde te quedaste) |
+
+La barra y el panel se ocultan solos a los pocos segundos si sigue reproduciendo; en pausa se quedan.
+
+En Google TV, Android TV y Fire TV es igual; las opciones de una tarjeta se abren manteniendo OK.
+
 ## Comandos
 
 Desde esta carpeta, en una Terminal de macOS (o doble clic en `One TV.command`, que equivale a `./cine`):
@@ -180,6 +199,18 @@ tarda ~1 s.
 
 `./cine catalogo` muestra la lista completa y el motivo de cada caso.
 
+### Tu música, aunque sea mucha
+
+`mac/music.py` lee las etiquetas una sola vez (`datos/musica.json`) y manda la música **por partes**: con 70 000
+canciones, todo junto serían unos 23 MB (el Roku no puede leer eso y Android TV se quedaba sin memoria). Al abrir
+Música llega solo lo de la sección (`/api/music/home`, unos 30 KB: tus listas, lo agregado hace poco, la primera
+tanda de artistas y de álbumes y cuántos hay); más artistas, álbumes o listas al acercarse al final de su fila
+(`/api/music/more`); cada álbum, artista o lista al abrirlo, con sus canciones de 200 en 200 (`/api/music/page`); y para
+escuchar algo enorme de seguido o al azar, hasta 500 canciones que arma la computadora (`/api/music/mix`, y lo mismo
+en «Escuchar en la TV» y «A la fila» con `{kind, id}`). Buscar en la web también encuentra en tu música
+(`/api/music/search`). `/api/music` (todo junto) queda para las apps de antes. Volver a mirar las carpetas se hace en
+segundo plano, sin hacer esperar a nadie. `pruebas/musica_grande.py` arma una música grande de ejemplo para probarlo.
+
 ### En vivo (páginas web de eventos)
 
 Pestaña **En vivo** de la web: pega el enlace de la página donde ves el evento → **Buscar video**. La computadora abre la
@@ -321,3 +352,16 @@ vivo» (en Windows también Edge).
   las órdenes de esa TV, se olvidan a los 30 s y guarda a lo más 12 TV.
 - Las direcciones que reescribe en las listas para la TV van firmadas con una clave de esta computadora
   (`datos/clave_enlaces`): solo abre lo que él mismo puso en una lista, y solo de internet.
+- **El asistente** (`/bienvenida`, `mac/asistente.py`) cambia la configuración y deja ver nombres de carpetas. Desde
+  esta misma computadora se puede usar siempre; desde otro aparato de la casa, **solo mientras la bienvenida no se ha
+  terminado** (el caso de un NAS o una computadora sin pantalla, que se configuran desde otra). Volver a abrirlo para
+  todos (`POST /api/bienvenida {"hecha": false}`), permitir la entrada en Windows y activar «fuera de casa», solo desde
+  esta computadora. Además, la página tiene que haberse abierto con una dirección de la casa (una IP, `localhost`, un
+  nombre sin puntos o `.local`): un nombre de internet podría ser una página ajena que apunta aquí («DNS rebinding»).
+  «Esta computadora» es quien llega desde `127.0.0.1` o desde la propia IP del servidor; Tailscale (que entrega todo
+  desde `127.0.0.1` con un nombre `.ts.net`) cuenta como otro aparato.
+- El explorador de carpetas del asistente solo enseña carpetas (nunca archivos) dentro de la carpeta personal, los
+  discos conectados y las carpetas compartidas montadas (en Docker, lo montado y `ONE_TV_COMPARTIDAS`), sin nada
+  oculto ni del sistema (`Library`, `AppData`, `@eaDir`…). Toda ruta que manda el navegador se resuelve (sin `..` ni
+  enlaces que salgan) y se revisa contra esos lugares antes de abrirla o guardarla. La contraseña del Roku solo la ve
+  quien puede usar el asistente; los datos de OpenSubtitles nunca se devuelven.

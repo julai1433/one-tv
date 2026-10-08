@@ -3,6 +3,12 @@
 # Antes revisa que estén los programas que hacen falta y, si falta alguno, dice el comando exacto para instalarlo.
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Lo que el instalador (instalar.sh) bajó para One TV en una Mac que no lo tenía: ffmpeg en programas/bin y Python
+# en programas/python. Se usa primero; si no está, los de la computadora.
+[ -d "$DIR/programas/bin" ] && export PATH="$DIR/programas/bin:$PATH"
+PY=python3
+[ -x "$DIR/programas/python/bin/python3" ] && PY="$DIR/programas/python/bin/python3"
+
 if [ "$(uname -s)" = "Linux" ]; then
   falta=()
   if ! command -v python3 >/dev/null 2>&1; then
@@ -25,15 +31,30 @@ if [ "$(uname -s)" = "Linux" ]; then
     exit 1
   fi
 else
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "✗ Falta python3. Instálalo con:  xcode-select --install"; exit 1
+  # macOS: /usr/bin/python3 no es Python de verdad hasta que se instalan las herramientas de Xcode (usarlo abriría su
+  # instalador). El instalador de One TV pone Python y ffmpeg solo para One TV, sin tocar nada más de la Mac.
+  instalador="curl -fsSL https://raw.githubusercontent.com/julai1433/one-tv/main/instalar.sh | bash"
+  if [ "$PY" = python3 ]; then
+    p="$(command -v python3)"
+    d="$(xcode-select -p 2>/dev/null)"
+    if [ -z "$p" ] || { [ "$p" = /usr/bin/python3 ] && [ ! -x "$d/usr/bin/python3" ]; }; then
+      echo "✗ Falta Python, que One TV necesita. El instalador de One TV lo pone solo; pega esto en la Terminal:"
+      echo
+      echo "    $instalador"
+      exit 1
+    fi
   fi
-  if ! command -v ffmpeg >/dev/null 2>&1; then
-    echo "✗ Falta ffmpeg. Instálalo con:  brew install ffmpeg"; exit 1
+  if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+    echo "✗ Falta ffmpeg, que One TV necesita. El instalador de One TV lo pone solo; pega esto en la Terminal:"
+    echo
+    echo "    $instalador"
+    echo
+    echo "  (O, si usas Homebrew:  brew install ffmpeg)"
+    exit 1
   fi
 fi
 
-if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
-  echo "✗ One TV necesita Python 3.9 o más nuevo (tienes $(python3 --version 2>&1))."; exit 1
+if ! "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+  echo "✗ One TV necesita Python 3.9 o más nuevo (tienes $("$PY" --version 2>&1))."; exit 1
 fi
-exec python3 "$DIR/mac/cine.py" "$@"
+exec "$PY" "$DIR/mac/cine.py" "$@"

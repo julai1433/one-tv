@@ -58,6 +58,20 @@ class Contenedor(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 correr(t, ONE_TV_CONTENEDOR="1", ONE_TV_DATOS=t, PUERTO="abc")
 
+    def test_nombre_para_la_tv(self):
+        """La TV muestra el nombre de cada computadora con One TV: en el contenedor, la variable NOMBRE o su nombre de
+        equipo; el número que Docker pone solo no le dice nada a nadie, así que ese queda como «Contenedor»."""
+        with tempfile.TemporaryDirectory() as t:
+            d = correr(t, ONE_TV_CONTENEDOR="1", ONE_TV_DATOS=t, NOMBRE="NAS de la sala")
+            self.assertEqual(d["cfg"]["nombre"], "NAS de la sala")
+            codigo = ("import socket, sys; sys.path.insert(0, %r); import hostos; "
+                      "socket.gethostname = lambda: sys.argv[1]; print(hostos.computer_name())" % MAC)
+            env = {k: v for k, v in os.environ.items() if not k.startswith("ONE_TV")}
+            env.update(ONE_TV_CONTENEDOR="1", ONE_TV_DATOS=t)
+            for host, nombre in (("3f2a9c81d0e4", "Contenedor"), ("DiskStation", "DiskStation"), ("nas.local", "nas")):
+                r = subprocess.run([sys.executable, "-c", codigo, host], env=env, capture_output=True, text=True, check=True)
+                self.assertEqual(r.stdout.strip(), nombre)
+
 
 if __name__ == "__main__":
     unittest.main()

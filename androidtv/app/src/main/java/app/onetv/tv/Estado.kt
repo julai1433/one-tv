@@ -22,7 +22,6 @@ import app.onetv.tv.data.fmtClock
 import app.onetv.tv.data.fmtDuration
 import app.onetv.tv.data.parseChannels
 import app.onetv.tv.data.parseLibrary
-import app.onetv.tv.data.parseMusic
 import app.onetv.tv.data.parseYtHome
 import app.onetv.tv.data.publishedText
 import app.onetv.tv.data.spokenText
@@ -30,6 +29,7 @@ import app.onetv.tv.data.viewersText
 import app.onetv.tv.data.trackName
 import app.onetv.tv.data.yearOf
 import app.onetv.tv.net.Busqueda
+import app.onetv.tv.net.Encontrada
 import app.onetv.tv.net.Servidor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -55,7 +55,9 @@ fun teclaDe(code: Int): Tecla? = when (code) {
     else -> null
 }
 
-enum class Conexion { BUSCANDO, NO_ENCONTRADA, ESCRIBIR, LISTA }
+/** BUSCANDO y NO_ENCONTRADA: al abrir. ELEGIR: hay más de una computadora con One TV (o se pidió «Cambiar»).
+ *  ESCRIBIR: la dirección a mano. LISTA: conectada. */
+enum class Conexion { BUSCANDO, NO_ENCONTRADA, ESCRIBIR, ELEGIR, LISTA }
 
 /** La ficha de una película, un episodio o un video de YouTube (DetailView del Roku). */
 data class Ficha(
@@ -116,14 +118,27 @@ class Estado(
     val api = Servidor("")
     var conexion by mutableStateOf(Conexion.BUSCANDO)
     var direccion by mutableStateOf("")
-    var puertoBusqueda = Busqueda.PUERTO
+    var nombreServidor by mutableStateOf("")   // el nombre de la computadora conectada («MacBook de Ana»)
+    var puertosBusqueda = listOf(Busqueda.PUERTO)
     var fijada: String? = null          // dirección dada al abrir la app (no se busca otra)
+
+    // Elegir la computadora (Computadoras.kt): las encontradas, cuál tiene el foco y si se está buscando.
+    var encontradas by mutableStateOf<List<Encontrada>>(emptyList())
+    var elegirIndex by mutableStateOf(0)
+    var buscandoTodas by mutableStateOf(false)
+    var notaElegir by mutableStateOf("")   // por qué se pregunta (vacío: el texto de siempre)
+    internal var escribirDesde = Conexion.NO_ENCONTRADA   // a dónde vuelve Atrás desde «Escribir la dirección»
+    /** Se pasó a otra computadora: MainActivity suelta la consulta de órdenes de la anterior (le dice adiós). */
+    var cambioDeComputadora: (anterior: String) -> Unit = {}
 
     var lib by mutableStateOf<Library?>(null)
     var ytHome by mutableStateOf<YtHome?>(null)
     var channels by mutableStateOf<List<app.onetv.tv.data.Channel>?>(null)
     var music by mutableStateOf<Music?>(null)
     var musicError by mutableStateOf(false)
+    val paginasMusica = mutableStateMapOf<String, app.onetv.tv.data.MusicPage>()   // "album:<id>" -> su página (Musica.kt)
+    internal val canciones = HashMap<String, app.onetv.tv.data.Song>()             // id -> canción ya traída
+    internal val pidiendoMusica = HashSet<String>()
     val ytProgress = mutableStateMapOf<String, Double>()
     val ytTitles = HashMap<String, Entry>()
 
@@ -183,7 +198,7 @@ class Estado(
     private var fallos = 0
 
     val datos by derivedStateOf {
-        lib?.let { Datos(it, direccion, ytHome, music, musicError, filtros.toMap()) }
+        lib?.let { Datos(it, direccion, ytHome, music, musicError, filtros.toMap(), paginasMusica.toMap()) }
     }
 
     /** La vista que se ve ahora (la página de arriba o la sección). */
@@ -205,7 +220,7 @@ class Estado(
                 Seccion.YOUTUBE -> d.youtube(channels, ytProgress)
                 Seccion.MUSICA -> d.musica()
                 Seccion.EN_VIVO -> d.enVivo()
-                Seccion.FILA -> d.fila(hidden)
+                Seccion.FILA -> d.fila(hidden, nombreServidor)
             }
         }
     }
@@ -226,34 +241,100 @@ class Estado(
         buscar()
     }
 
-    private var busqueda: Job? = null
+    internal var busqueda: Job? = null
 
+    /**
+     * Al abrir (o si se perdió): la recordada, si responde. Si no, todas las de la red: la de siempre (mismo nombre,
+     * quizá con otra dirección) o la única que hay; con varias y ninguna conocida, se pregunta cuál (Computadoras.kt).
+     */
     fun buscar() {
         if (busqueda?.isActive == true) return
         conexion = if (lib == null) Conexion.BUSCANDO else conexion
         busqueda = scope.launch {
             val recordada = prefs.getString("servidor", null)
-            val found = Busqueda.buscar(recordada, direccionesPropias(), puertoBusqueda) { Servidor.esOneTv(it) }
-            if (found != null) {
-                conectar(found)
-            } else if (lib == null) {
-                conexion = Conexion.NO_ENCONTRADA
-                delay(20_000)
-                if (conexion == Conexion.NO_ENCONTRADA) {
-                    busqueda = null
-                    buscar()   // se sigue buscando sola mientras la pantalla esté a la vista
+            if (recordada != null) leerComputadora(recordada, 1500)?.let {
+                conectar(it)
+                return@launch
+            }
+            val todas = Busqueda.buscarTodas(recordada, direccionesPropias(), puertosBusqueda) { leerComputadora(it) }
+            val nombre = prefs.getString("servidor_nombre", null)
+            val misma = Busqueda.laMisma(todas, nombre)
+            when {
+                misma != null -> conectar(misma)
+                todas.isNotEmpty() && lib == null -> mostrarComputadoras(todas, if (nombre != null) notaNoEncuentro(nombre) else "")
+                lib == null -> {
+                    conexion = Conexion.NO_ENCONTRADA
+                    delay(20_000)
+                    if (conexion == Conexion.NO_ENCONTRADA) {
+                        busqueda = null
+                        buscar()   // se sigue buscando sola mientras la pantalla esté a la vista
+                    }
                 }
             }
         }
     }
 
-    fun conectar(base: String) {
-        direccion = base
-        api.base = base
-        if (fijada == null) prefs.edit().putString("servidor", base).apply()
+    fun conectar(base: String) = conectar(Encontrada(base, "", 0))
+
+    fun conectar(c: Encontrada) {
+        direccion = c.direccion
+        api.base = c.direccion
+        if (c.nombre.isNotEmpty()) nombreServidor = c.nombre
+        if (fijada == null) {
+            val ed = prefs.edit().putString("servidor", c.direccion)
+            if (c.nombre.isNotEmpty()) ed.putString("servidor_nombre", c.nombre)
+            ed.apply()
+        }
         conexion = Conexion.LISTA
         cargarBiblioteca()
+        if (c.nombre.isEmpty()) scope.launch {   // sin su nombre (dirección dada al abrir): se pide, para Ajustes generales
+            val leida = leerComputadora(c.direccion, 3000) ?: return@launch
+            if (direccion != leida.direccion) return@launch
+            nombreServidor = leida.nombre
+            if (fijada == null) prefs.edit().putString("servidor_nombre", leida.nombre).apply()
+        }
     }
+
+    internal fun direccionesDeLaTv() = direccionesPropias()
+
+    /** Se pasó a otra computadora: lo de la anterior ya no sirve (su catálogo, YouTube, música, páginas abiertas). */
+    internal fun olvidarCatalogo() {
+        reintento?.cancel()
+        fijarAviso("")
+        fallos = 0
+        sinServidor = false
+        lib = null
+        ytHome = null
+        channels = null
+        music = null
+        musicError = false
+        ytProgress.clear()
+        ytTitles.clear()
+        paginaVideos.clear()
+        favs.clear()
+        vidLists = null
+        hidden = null
+        hiddenError = false
+        ficha = null
+        lista = null
+        idioma = null
+        sinopsis = false
+        qr = false
+        ayuda = false
+        listaNueva = null
+        cur = null
+        musicCtx = null
+        menuAbierto = false
+        paginas.clear()
+        focoFilas.clear()
+        focoCuadricula.clear()
+        focoChip.clear()
+        seccion = Seccion.INICIO
+    }
+
+    /** /api/status de esa dirección -> la computadora (nombre y videos) o null, sin trabar la pantalla. */
+    suspend fun leerComputadora(base: String, timeoutMs: Int = 700): Encontrada? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Servidor.estado(base, timeoutMs) }
 
     /** Una dirección escrita a mano (pantalla «Escribir la dirección»). */
     fun probarEscrita(texto: String, listo: (String?) -> Unit) {
@@ -263,17 +344,18 @@ class Estado(
             return
         }
         scope.launch {
-            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Servidor.esOneTv(base, 3000) }
-            if (ok) {
+            val c = leerComputadora(base, 3000)
+            if (c != null) {
                 listo(null)
-                conectar(base)
+                usarComputadora(c)
             } else listo("No hay un One TV en $base. Revisa la dirección y que la computadora esté encendida.")
         }
     }
 
-    /** Cambió la red (otro Wi-Fi, se reconectó): si no hay servidor, se busca otra vez. */
+    /** Cambió la red (otro Wi-Fi, se reconectó): si no hay servidor, se busca otra vez (no mientras se elige o se
+     *  escribe la dirección). */
     fun redCambio() {
-        if (conexion != Conexion.LISTA || sinServidor) {
+        if (conexion == Conexion.BUSCANDO || conexion == Conexion.NO_ENCONTRADA || (conexion == Conexion.LISTA && sinServidor)) {
             busqueda?.cancel()
             busqueda = null
             buscar()
@@ -300,7 +382,7 @@ class Estado(
                 for (e in l.youtube + l.queue + l.history) if (e.kind == "yt") recordarYt(e)
                 if (sinServidor) sinServidor = false
                 if (first) ocultarAviso()
-                if (l.items.isEmpty()) mostrarAviso("No hay videos. Revisa «carpetas» en config.json de la computadora.", false, auto = false)
+                fijarAviso(if (l.items.isEmpty()) textoSinVideos(o.optJSONArray("sin_permiso")?.length() ?: 0) else "")
                 cargarYouTube()
                 if (first) cargarMusica()
                 pendiente?.let {
@@ -309,15 +391,18 @@ class Estado(
                 }
             } catch (e: Exception) {
                 fallos++
+                fijarAviso("")   // «No hay videos» ya no es lo que pasa: no se encuentra la computadora
                 if (lib == null) ocultarAviso()
                 sinServidor = true
                 reintento?.cancel()
                 reintento = scope.launch {
                     delay(5000)
-                    // La sigue buscando sola cada 5 segundos; si no responde varias veces, quizá cambió de dirección.
+                    // La sigue buscando sola cada 5 segundos; si no responde varias veces, quizá cambió de dirección: se
+                    // busca la misma computadora (por su nombre), nunca otra.
                     if (fallos >= 3 && fijada == null) {
-                        val found = Busqueda.buscar(direccion, direccionesPropias(), puertoBusqueda) { Servidor.esOneTv(it) }
-                        if (found != null && found != direccion) {
+                        val todas = Busqueda.buscarTodas(null, direccionesPropias(), puertosBusqueda) { leerComputadora(it) }
+                        val found = Busqueda.laMisma(todas, nombreServidor.ifEmpty { prefs.getString("servidor_nombre", null) })
+                        if (found != null && found.direccion != direccion) {
                             conectar(found)
                             return@launch
                         }
@@ -347,17 +432,6 @@ class Estado(
         }
     }
 
-    fun cargarMusica() {
-        scope.launch {
-            try {
-                val o = api.get("/api/music", 30000)
-                if (o.optBoolean("ok", true)) music = parseMusic(o) else musicError = true
-            } catch (_: Exception) {
-                if (music == null) musicError = true
-            }
-        }
-    }
-
     /** «yt:<video>» o el id de una película o episodio: se reproduce ya (ficha y menú cerrados). */
     fun abrirContenido(id: String) {
         if (lib == null) {
@@ -373,19 +447,29 @@ class Estado(
 
     // ---------- avisos breves ----------
 
+    /** El aviso que se queda mientras siga siendo cierto («No hay videos todavía…»): vuelve al quitarse otro encima. */
+    private var avisoFijo = ""
+
     fun mostrarAviso(text: String, error: Boolean = false, auto: Boolean = true) {
         aviso = text
         avisoError = error
         avisoJob?.cancel()
         if (auto) avisoJob = scope.launch {
             delay(4000)
-            aviso = ""
+            ocultarAviso()
         }
     }
 
     fun ocultarAviso() {
         avisoJob?.cancel()
-        aviso = ""
+        aviso = avisoFijo
+        avisoError = false
+    }
+
+    private fun fijarAviso(text: String) {
+        val antes = avisoFijo
+        avisoFijo = text
+        if (text.isNotEmpty()) mostrarAviso(text, false, auto = false) else if (aviso == antes) ocultarAviso()
     }
 
     // ---------- teclas ----------
@@ -407,11 +491,16 @@ class Estado(
         lista?.let { return teclaLista(t, it) }
         if (reproductor.visible) return reproductor.tecla(t)
         ficha?.let { return teclaFicha(t, it) }
-        if (sinServidor) {
-            if (t == Tecla.OK) {
-                mostrarAviso("Buscando la computadora…")
-                cargarBiblioteca()
-            } else if (t == Tecla.ATRAS) salir()
+        if (sinServidor) {   // «No encuentro la computadora»: «Buscar ahora» o «Elegir otra computadora»
+            when (t) {
+                Tecla.IZQ, Tecla.DER -> conexionBoton = 1 - conexionBoton
+                Tecla.OK -> if (conexionBoton == 0) {
+                    mostrarAviso("Buscando la computadora…")
+                    cargarBiblioteca()
+                } else cambiarComputadora()
+                Tecla.ATRAS -> salir()
+                else -> {}
+            }
             return true
         }
         if (menuAbierto) return teclaMenu(t)
@@ -438,17 +527,21 @@ class Estado(
                     busqueda = null
                     conexion = Conexion.BUSCANDO
                     buscar()
-                } else conexion = Conexion.ESCRIBIR
+                } else {
+                    escribirDesde = Conexion.NO_ENCONTRADA
+                    conexion = Conexion.ESCRIBIR
+                }
                 Tecla.ATRAS -> salir()
                 else -> {}
             }
             Conexion.ESCRIBIR -> {
                 if (t == Tecla.ATRAS) {
-                    conexion = Conexion.NO_ENCONTRADA
+                    conexion = escribirDesde
                     return true
                 }
                 return false   // el campo de texto y el teclado de la TV se encargan
             }
+            Conexion.ELEGIR -> return teclaElegir(t)
             else -> if (t == Tecla.ATRAS) salir()
         }
         return true
@@ -545,6 +638,7 @@ class Estado(
             Tecla.OPCIONES -> opcionesTarjeta(fila.tarjetas.getOrNull(c))
             else -> return false
         }
+        musicaCercaDelFinal(v)   // Música: más artistas o álbumes al acercarse al final (Musica.kt)
         return true
     }
 
@@ -603,6 +697,7 @@ class Estado(
             Tecla.OPCIONES -> opcionesTarjeta(v.tarjetas.getOrNull(i))
             else -> return false
         }
+        paginaMusicaCercaDelFinal(v)   // un álbum, artista o lista: las canciones que siguen (Musica.kt)
         return true
     }
 
@@ -614,9 +709,7 @@ class Estado(
             return
         }
         if (p is Pagina.MusicaPagina) {
-            val ids = datos?.musicaPaginaTracks(p).orEmpty()
-            if (ids.isEmpty()) return
-            if (id == "m-play") escucharLista(ids, 0, false) else escucharLista(ids, ids.indices.random(), true)
+            if (id == "m-play") escucharColeccion(p.sub, p.id, 0, false) else aleatorioColeccion(p.sub, p.id)
             return
         }
         val name = if (v.key == "peliculas") "movies" else if (v.key == "series") "series" else return
@@ -660,11 +753,9 @@ class Estado(
                 val parts = id.split(":")
                 val ctx = parts.getOrNull(1) ?: return
                 val i = parts.getOrNull(2)?.toIntOrNull() ?: return
-                val ids = when (ctx) {
-                    "recent" -> datos?.recientes().orEmpty()
-                    else -> (paginas.lastOrNull() as? Pagina.MusicaPagina)?.let { datos?.musicaPaginaTracks(it) }.orEmpty()
-                }
-                escucharLista(ids, i, false)
+                val page = paginas.lastOrNull() as? Pagina.MusicaPagina
+                if (ctx == "recent" || page == null) escucharCanciones(datos?.recientes().orEmpty(), i, false)
+                else escucharColeccion(page.sub, page.id, i, false)   // si es enorme, siguen las de la computadora
             }
             id.startsWith("album:") || id.startsWith("mlist:") || id.startsWith("artist:") -> {
                 val sub = when {
@@ -672,21 +763,7 @@ class Estado(
                     id.startsWith("mlist:") -> "list"
                     else -> "artist"
                 }
-                val rid = id.substringAfter(":")
-                val m = music ?: return
-                val title = when (sub) {
-                    "album" -> m.albums.firstOrNull { it.id == rid }?.title
-                    "list" -> m.playlists.firstOrNull { it.id == rid }?.title
-                    else -> m.artists.firstOrNull { it.id == rid }?.name
-                }.orEmpty()
-                val page = Pagina.MusicaPagina(sub, rid, title)
-                if (quick) {
-                    val ids = datos?.musicaPaginaTracks(page).orEmpty()
-                    if (ids.isNotEmpty()) escucharLista(ids, 0, false)
-                } else {
-                    focoCuadricula["musica:$sub:$rid"] = 0
-                    paginas.add(page)
-                }
+                abrirMusica(sub, id.substringAfter(":"), tituloTarjeta(id), quick)   // Musica.kt
             }
             id.startsWith("yt:") -> if (quick) verYouTube(id.removePrefix("yt:"), -1.0) else fichaYouTube(id.removePrefix("yt:"))
             id.startsWith("serie:") -> {
@@ -1159,18 +1236,6 @@ class Estado(
             chapterTitles = chapterTitlesOn(lib?.prefs.orEmpty()))
     }
 
-    fun escucharLista(ids: List<String>, index: Int, shuffle: Boolean) {
-        val m = music ?: return
-        var tracks = ids.mapNotNull { m.tracks[it] }
-        if (tracks.isEmpty()) return
-        var i = index.coerceIn(0, tracks.size - 1)
-        if (shuffle) {
-            tracks = listOf(tracks[i]) + (tracks - tracks[i]).shuffled()
-            i = 0
-        }
-        escucharEn(tracks, i, 0.0)
-    }
-
     /** Escuchar esas canciones desde la `i` (también la música que manda la computadora, control/Ordenes.kt). */
     fun escucharEn(tracks: List<app.onetv.tv.data.Song>, i: Int, startAt: Double) {
         musicCtx = tracks to i
@@ -1217,7 +1282,7 @@ class Estado(
                 ytTitles.putIfAbsent(e.id, e)
                 verYouTube(e.id, -1.0)
             }
-            "track" -> music?.tracks?.get(e.id)?.let { escucharEn(listOf(it), 0, 0.0) }
+            "track" -> escucharCancionSuelta(e.id)   // Musica.kt
             else -> if (lib?.items?.containsKey(e.id) == true) empezarItem(e.id, true)
         }
     }

@@ -18,6 +18,7 @@ PAGINA = f"https://github.com/{REPO}/releases"
 APK = "one-tv-tv.apk"        # nombre fijo del archivo en cada versión de GitHub
 DATOS = "one-tv-tv.json"     # {"version": "0.1.37", "version_code": 38}, junto al archivo
 CADA = 24 * 3600
+REINTENTO = 3600   # si GitHub no contestó (sin internet, o tardó demasiado), se vuelve a intentar en una hora
 PEDIDA = 5 * 60   # si alguien pide la app y no la hay, se pregunta a GitHub ya (a lo mucho una vez cada 5 min)
 TIPO = "application/vnd.android.package-archive"
 UA = {"User-Agent": "one-tv (servidor de la casa)", "Accept": "application/vnd.github+json"}
@@ -78,7 +79,7 @@ class AppTv:
             if msg:
                 self.log(msg)
         except Exception as e:  # noqa: BLE001 - sin internet o GitHub no responde: la página lo dice en llano
-            self.log(f"⚠ App para Google TV: no se pudo bajar de GitHub ({e})")
+            self.log(f"⚠ App para Google TV: no se pudo bajar ({por_que(e)}); se vuelve a intentar cuando la pidan.")
         return self.actual()
 
     def info(self):
@@ -125,7 +126,7 @@ class AppTv:
                 datos = {}
         apk = self._leer(archivos[APK], timeout=300)
         if not apk.startswith(b"PK"):   # un .apk es un .zip: si no empieza así, llegó otra cosa
-            raise ValueError("lo que bajó de GitHub no es una app")
+            raise AppInvalida("lo que bajó de GitHub no es una app")
         self.dir.mkdir(parents=True, exist_ok=True)
         parcial = self.dir / (APK + ".parcial")
         parcial.write_bytes(apk)
@@ -135,16 +136,35 @@ class AppTv:
         (self.dir / "version.json").write_text(json.dumps(meta), encoding="utf-8")
         return f"✓ App para Google TV / Android TV / Fire TV lista para instalar: versión {version}"
 
+    def revisar(self):
+        """Una revisión de la tarea automática. -> segundos hasta la siguiente: un día si salió bien, una hora si no."""
+        try:
+            msg = self.actualizar()
+        except Exception as e:  # noqa: BLE001 - sin internet o GitHub no responde: se reintenta en una hora
+            self.log(f"⚠ App para Google TV: {por_que(e)}; se reintenta en una hora.")
+            return REINTENTO
+        if msg:
+            self.log(msg)
+        return CADA
+
     def mantener_al_dia(self):
         """Tarea automática: revisa GitHub al arrancar y una vez al día. Nunca debe tumbar el servidor."""
         while True:
-            try:
-                msg = self.actualizar()
-                if msg:
-                    self.log(msg)
-            except Exception as e:  # noqa: BLE001 - sin internet o GitHub no responde: se intenta mañana
-                self.log(f"⚠ App para Google TV: no se pudo revisar si hay una versión nueva ({e})")
-            time.sleep(CADA)
+            time.sleep(self.revisar())
+
+
+class AppInvalida(ValueError):
+    """Lo que bajó de GitHub no sirve (el mensaje ya está en llano)."""
+
+
+def por_que(e):
+    """Por qué no se pudo hablar con GitHub, en llano. Los errores de la red (sin internet, «WinError 10060», tiempo
+    agotado) salen en inglés y en clave: todos son «sin conexión con GitHub»."""
+    if isinstance(e, AppInvalida):
+        return str(e)
+    if isinstance(e, OSError):   # (urllib.error.URLError, socket.timeout y los de Windows son OSError)
+        return "sin conexión con GitHub"
+    return "GitHub contestó algo que no se entiende"
 
 
 def pagina_sin_app():

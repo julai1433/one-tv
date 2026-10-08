@@ -2,3 +2,7 @@
 # su marca UTF-8 (BOM) para que Windows PowerShell 5.1 lea bien los acentos.
 *.cmd -text
 *.ps1 -text
+# Lo que no viaja en el .zip / .tar.gz que GitHub arma del proyecto (lo que bajan los instaladores: instalar.sh y
+# windows/instalar.ps1): las capturas y los diseños, unos 10 MB que el programa no usa. Siguen en el repositorio.
+docs/capturas export-ignore
+docs/diseno export-ignore

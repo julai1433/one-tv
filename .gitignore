@@ -12,8 +12,9 @@ __pycache__/
 # Node (validación de BrightScript)
 node_modules/
 
-# Salidas de pruebas y paquetes
+# Salidas de pruebas y paquetes (dist/: los instaladores de doble clic, herramientas/armar_instaladores.sh)
 *.zip
+dist/
 pruebas/salidas/
 
 # Copias de trabajo de los subagentes (git worktree)

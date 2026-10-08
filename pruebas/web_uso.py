@@ -377,7 +377,7 @@ try:
         shot("15_musica_390.png")
         check(js("document.documentElement.scrollWidth <= innerWidth") is True, "Música a 390 px sin desplazamiento de lado")
         check(js("getComputedStyle(document.getElementById('tabs')).gridTemplateColumns.split(' ').length") == 6, "seis pestañas en el teléfono")
-        go("#album=" + js("music.albums.find(a => a.tracks.length > 1).id"), 2.0)
+        go("#album=" + js("music.albums.find(a => a.count > 1).id"), 2.0)
         shot("16_album_390.png")
         check(js("document.documentElement.scrollWidth <= innerWidth") is True, "álbum a 390 px sin desplazamiento de lado")
         viewport(1280); time.sleep(0.3)
@@ -385,7 +385,7 @@ try:
 
     # ---------- la música que suena en la TV se controla desde la web ----------
     if part("musica_tv"):
-        tracks = list(api("/api/music")["tracks"].values())
+        tracks = api("/api/music/home")["recent"]   # la música llega por partes (mac/music.py)
         t = tracks[0]
         tid = "track:" + t["id"]
         before_hist = len(api("/api/library")["history"])

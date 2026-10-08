@@ -79,7 +79,9 @@ jobs:
         run: >
           python -X faulthandler -c "import faulthandler, unittest; faulthandler.dump_traceback_later(180, exit=True);
           unittest.main(module=None, argv=['pruebas', 'discover', '-v', '-s', 'pruebas', '-p', 'test_*.py'])"
-      - name: Prueba de humo del servidor, de cine.cmd y del arranque automático (Programador de tareas)
-        # El servidor de verdad con videos de prueba (como en Ubuntu); luego «cine.cmd estado» y la tarea «One TV» de
-        # verdad: arranca sin ventana, vuelve sola si se cae, aplica cambios y se quita (pruebas/humo_windows.py).
+      - name: Prueba de humo del servidor, de cine.cmd, del arranque automático y de la regla del firewall
+        # El servidor de verdad con videos de prueba (como en Ubuntu); luego «cine.cmd estado», la tarea «One TV» de
+        # verdad (arranca sin ventana, vuelve sola si se cae, aplica cambios y se quita) y «cine permitir-red» de
+        # verdad (aquí corre como administrador: crea una sola regla «One TV», la corrige si cambia el puerto y la
+        # quita al final) (pruebas/humo_windows.py).
         run: python pruebas/humo_windows.py --puerto 8798 --de-verdad

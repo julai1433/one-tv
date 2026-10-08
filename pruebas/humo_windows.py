@@ -9,6 +9,9 @@
    aplica un cambio y lo reinicia; «cine quitar-autoarranque» lo detiene y quita la tarea. Usa la carpeta de datos de
    verdad (%LOCALAPPDATA%\\cine-roku), así que solo corre en una computadora de pruebas (GitHub Actions): si ahí ya hay
    un One TV instalado, no hace nada.
+4. Solo con --de-verdad: «cine permitir-red» crea de verdad la regla «One TV» del firewall (GitHub corre como
+   administrador: sin ventana de permiso), una sola aunque se repita, la corrige si cambia el puerto, y «cine estado»
+   avisa cuando falta. Al final la quita.
 Sale con código 1 si algo falla. Sin TV: el Roku se apunta a 127.0.0.1.
 """
 
@@ -152,6 +155,63 @@ def autoarranque(port):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def reglas_one_tv():
+    """Las reglas «One TV» del firewall: [(puerto, direcciones, perfil)], preguntándole a Windows."""
+    script = ("Get-NetFirewallRule -DisplayName 'One TV' -ErrorAction SilentlyContinue | ForEach-Object { "
+              "$p = $_ | Get-NetFirewallPortFilter; $a = $_ | Get-NetFirewallAddressFilter; "
+              "Write-Output (\"{0}|{1}|{2}\" -f ($p.LocalPort -join ','), ($a.RemoteAddress -join ','), $_.Profile) }")
+    _, out = correr(["powershell", "-NoProfile", "-Command", script], timeout=120)
+    return [tuple(line.strip().split("|")) for line in out.splitlines() if line.count("|") == 2]
+
+
+def regla_del_firewall(port):
+    """«cine permitir-red» de verdad (en GitHub corre como administrador: sin la ventana de permiso): crea una sola
+    regla «One TV», la corrige si cambia el puerto y «cine estado» deja de avisar. Al final la quita."""
+    import winfirewall
+    print("4) La regla del firewall («cine permitir-red»)", flush=True)
+    if reglas_one_tv():
+        paso(False, "ya hay una regla «One TV» en esta computadora: esta parte no se corre aquí")
+        return
+    perfiles = correr(["powershell", "-NoProfile", "-Command",
+                       "@(Get-NetFirewallProfile | Where-Object { $_.Enabled -eq 'True' }).Count"])[1].strip()
+    prendido = perfiles not in ("", "0")
+    print(f"    (el firewall de esta computadora está {'prendido' if prendido else 'apagado'})")
+    tmp = Path(tempfile.mkdtemp(prefix="one-tv-red-"))
+    proyecto = tmp / "proyecto"
+    shutil.copytree(ROOT / "mac", proyecto / "mac", ignore=shutil.ignore_patterns("__pycache__"))
+    cine = [sys.executable, "-X", "utf8", str(proyecto / "mac" / "cine.py")]
+
+    def config(puerto):
+        (proyecto / "config.json").write_text(json.dumps({"carpetas": [str(tmp)], "puerto": puerto}), encoding="utf-8")
+
+    try:
+        for puerto in (port, port + 1):   # el segundo: cambió el puerto en config.json
+            config(puerto)
+            if prendido:
+                code, out = correr([*cine, "permitir-red"], cwd=proyecto)
+                paso(code == 0 and "✓ Listo" in out, f"«cine permitir-red» con el puerto {puerto} (código {code})")
+                if code != 0:
+                    print("    " + out.strip().replace("\n", "\n    "))
+            else:   # con el firewall apagado no hace falta: se crea directo, para revisar la regla
+                paso(winfirewall.allow(puerto) == "", f"la regla con el puerto {puerto}")
+            reglas = reglas_one_tv()
+            paso(reglas == [(str(puerto), "LocalSubnet", "Any")], f"una sola regla, la del {puerto}: {reglas}")
+            paso(winfirewall.status(puerto) is False, "ya no está bloqueada")
+        code, out = correr([*cine, "permitir-red"], cwd=proyecto)
+        paso(code == 0 and "ya deja" in out and len(reglas_one_tv()) == 1, "otra vez: no la repite")
+        code, out = correr([*cine, "estado"], cwd=proyecto)
+        paso("permitir-red" not in out, "«cine estado» no avisa nada")
+        if prendido:   # el puerto viejo ya no tiene regla: está bloqueado y «cine estado» lo dice
+            paso(winfirewall.status(port) is True, f"el puerto viejo ({port}) quedó cerrado")
+            config(port)
+            code, out = correr([*cine, "estado"], cwd=proyecto)
+            paso("Corre «cine permitir-red»" in out, "«cine estado» avisa si falta la regla")
+    finally:
+        correr(["powershell", "-NoProfile", "-Command",
+                "Remove-NetFirewallRule -DisplayName 'One TV' -ErrorAction SilentlyContinue"])
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--puerto", type=int, default=8798)
@@ -168,6 +228,7 @@ def main():
         if not (os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")):
             sys.exit("✗ --de-verdad solo en una computadora de pruebas (GitHub Actions): usa tu carpeta de datos real.")
         autoarranque(args.puerto - 1)
+        regla_del_firewall(args.puerto + 10)
     print("Todo bien." if not fallas else f"{len(fallas)} cosa(s) fallaron.")
     sys.exit(1 if fallas else 0)
 

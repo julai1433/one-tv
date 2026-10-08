@@ -6,7 +6,7 @@ name: Imagen de Docker
 on:
   push:
     branches: [main]
-    paths-ignore: ["docs/**", "**.md", "androidtv/**", "windows/**", "menubar/**"]
+    paths-ignore: ["docs/**", "**.md", "androidtv/**", "windows/**", "menubar/**", "pagina/**", "instaladores/**"]
   workflow_dispatch:
 
 permissions:

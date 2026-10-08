@@ -1,6 +1,7 @@
 package app.onetv.tv
 
 import app.onetv.tv.net.Busqueda
+import app.onetv.tv.net.Encontrada
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -81,6 +82,57 @@ class BusquedaTest {
     fun usa_el_puerto_que_se_pida() = runBlocking {
         val found = Busqueda.buscar(null, listOf("10.0.2.15"), puerto = 8797) { url -> url == "http://10.0.2.2:8797" }
         assertEquals("http://10.0.2.2:8797", found)
+    }
+
+    @Test
+    fun lee_el_nombre_y_los_videos_de_cada_computadora() {
+        val status = """{"items": 16, "queue": 0, "playing": null, "nombre": "MacBook de Ana", "sin_permiso": []}"""
+        assertEquals(Encontrada("http://192.0.2.5:8765", "MacBook de Ana", 16), Busqueda.leerEstado("http://192.0.2.5:8765", status))
+        // Un servidor viejo, sin «nombre»: se nombra por su dirección.
+        val viejo = """{"items": 3, "queue": 0, "playing": null}"""
+        assertEquals("192.0.2.9", Busqueda.leerEstado("http://192.0.2.9:8765", viejo)?.nombre)
+        assertNull(Busqueda.leerEstado("http://192.0.2.1:8765", "<html>router</html>"))
+    }
+
+    @Test
+    fun junta_todas_las_computadoras_con_one_tv_en_cada_puerto() = runBlocking {
+        // Como en la casa del amigo: la computadora con sus videos y un contenedor vacío, en la misma red.
+        val hay = mapOf(
+            "http://10.0.2.2:8804" to Encontrada("http://10.0.2.2:8804", "Computadora de la sala", 16),
+            "http://10.0.2.2:8805" to Encontrada("http://10.0.2.2:8805", "Contenedor", 0),
+        )
+        val probadas = Collections.synchronizedList(mutableListOf<String>())
+        val todas = Busqueda.buscarTodas(null, listOf("10.0.2.15"), listOf(8804, 8805)) { url ->
+            probadas += url
+            hay[url]
+        }
+        assertEquals(listOf("Computadora de la sala", "Contenedor"), todas.map { it.nombre })   // más videos primero
+        assertEquals(253 * 2, probadas.size)   // toda la red, en los dos puertos
+    }
+
+    @Test
+    fun la_recordada_tambien_cuenta_aunque_este_en_otra_red() = runBlocking {
+        val todas = Busqueda.buscarTodas("http://198.51.100.7:8765", listOf("192.0.2.200")) { url ->
+            if (url == "http://198.51.100.7:8765") Encontrada(url, "NAS", 4) else null
+        }
+        assertEquals(listOf("NAS"), todas.map { it.nombre })
+    }
+
+    @Test
+    fun la_de_siempre_es_la_del_mismo_nombre_nunca_otra() {
+        val sala = Encontrada("http://192.0.2.5:8765", "Sala", 10)
+        val nas = Encontrada("http://192.0.2.9:8765", "NAS", 0)
+        assertEquals(sala, Busqueda.laMisma(listOf(nas, sala.copy(direccion = "http://192.0.2.6:8765")), "Sala")?.copy(direccion = sala.direccion))
+        assertNull(Busqueda.laMisma(listOf(nas), "Sala"))      // la elegida no está: no se pasa sola a la otra
+        assertEquals(nas, Busqueda.laMisma(listOf(nas), null))  // sin nombre recordado (primera vez): la única que hay
+        assertNull(Busqueda.laMisma(listOf(nas, sala), null))   // varias y ninguna conocida: se pregunta
+    }
+
+    @Test
+    fun sin_videos_lo_dice_sin_nombres_de_archivos() {
+        assertEquals("No hay videos todavía: copia tus películas y series a la carpeta de videos de la computadora.", textoSinVideos(0))
+        assertTrue(textoSinVideos(1).startsWith("La computadora no puede leer tu carpeta de videos:"))
+        for (t in listOf(textoSinVideos(0), textoSinVideos(1))) assertFalse(t.contains("json") || t.contains("«carpetas»"))
     }
 
     @Test

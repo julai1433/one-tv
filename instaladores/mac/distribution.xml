@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- El instalador de la Mac (Instalar-One-TV-Mac.pkg): «solo para ti» (sin contraseña de administrador) y sin archivos
+     que copiar; todo lo hace el guion «postinstall». Lo arma herramientas/armar_instaladores.sh. -->
+<installer-gui-script minSpecVersion="2">
+  <title>One TV</title>
+  <welcome file="bienvenida.html" mime-type="text/html"/>
+  <conclusion file="listo.html" mime-type="text/html"/>
+  <domains enable_anywhere="false" enable_currentUserHome="true" enable_localSystem="false"/>
+  <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+  <choices-outline>
+    <line choice="one-tv"/>
+  </choices-outline>
+  <choice id="one-tv" title="One TV">
+    <pkg-ref id="io.github.julai1433.onetv.instalador"/>
+  </choice>
+  <pkg-ref id="io.github.julai1433.onetv.instalador" version="1.0" onConclusion="none">one-tv.pkg</pkg-ref>
+</installer-gui-script>

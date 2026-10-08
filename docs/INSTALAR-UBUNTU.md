@@ -17,18 +17,18 @@ Tiempo aproximado: 15 minutos.
 Abre la **Terminal** (en el escritorio: `Ctrl + Alt + T`; en un servidor: entra por SSH), pega esto y pulsa Enter:
 
 ```
-sudo apt update && sudo apt install -y git python3 python3-venv ffmpeg && git clone https://github.com/julai1433/one-tv.git ~/one-tv && cd ~/one-tv && ./cine
+wget -qO- https://raw.githubusercontent.com/julai1433/one-tv/main/instalar.sh | bash
 ```
 
-Primero pide **tu contraseña** (la de tu usuario de Ubuntu) para instalar los programas que hacen falta. Después
-`./cine` te hace **cuatro preguntas**; Enter acepta lo que sale entre corchetes:
+(con `curl -fsSL … | bash` es lo mismo). Baja One TV a `~/one-tv` e instala con apt lo que falte (Python y ffmpeg):
+para eso pide **tu contraseña** (la de tu usuario de Ubuntu) una sola vez y dice para qué. Deja el servidor
+corriendo de fondo y arrancando solo con la computadora (paso 4) y abre el navegador en la **bienvenida**
+(<http://localhost:8765/bienvenida>), que termina la configuración. En un servidor sin pantalla, muestra la dirección
+exacta para abrir desde otro aparato (algo como `http://192.168.1.20:8765/bienvenida`).
 
-1. **Carpeta de tus películas y series**: sugiere `~/Vídeos/Biblioteca` (o `~/Videos/Biblioteca`). Si no existe, la crea.
-2. **Contraseña del modo desarrollador del Roku**: la vas a inventar en el paso 3. Si aún no la tienes, deja vacío.
-3. **IP del Roku**: déjala vacía; la busca sola.
-4. **Carpeta de música** (opcional): escribe «no» si no quieres la sección Música.
-
-Luego arranca el servidor en esa ventana. Para pararlo: `Ctrl + C`.
+Tus películas y series van en `~/Vídeos/Biblioteca` (o `~/Videos/Biblioteca`; la crea si no existe). Si prefieres
+contestar unas preguntas en la Terminal: `cd ~/one-tv && ./cine configurar`. Para ponerlo al día cuando quieras,
+vuelve a pegar el mismo comando: tu configuración y lo que ya viste se quedan.
 
 Si algún día `./cine` dice `✗ Faltan programas`, copia y pega el comando `sudo apt …` que muestra.
 
@@ -40,6 +40,8 @@ servidor arrancado y la TV encendida, **el servidor instala la app «One TV» en
 7](INSTALAR.md#paso-7-instalar-la-app-en-el-roku)); si no pasó, corre `./cine instalar`.
 
 ## 4. Que arranque solo
+
+El instalador ya lo deja así. A mano (por ejemplo, si lo quitaste):
 
 ```
 ./cine autoarranque
@@ -57,7 +59,7 @@ eso activa una opción de systemd («linger»); si no pudo, te dice el comando (
 
 - En la misma computadora: <http://localhost:8765>. Desde otro aparato (laptop, teléfono): la dirección que muestra
   `./cine estado` («Desde la computadora» o «Desde otro aparato»).
-- Pon tus películas y series en la carpeta de la pregunta 1; se ordenan solas ([INSTALAR.md, parte
+- Pon tus películas y series en tu carpeta de la biblioteca; se ordenan solas ([INSTALAR.md, parte
   4](INSTALAR.md#parte-4-tus-películas-y-series)). Revisa cómo llegará cada una a la TV con `./cine catalogo`.
 
 ## Diferencias con la Mac

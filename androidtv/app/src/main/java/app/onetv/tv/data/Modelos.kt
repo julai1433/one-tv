@@ -105,12 +105,42 @@ data class YtHome(
 )
 
 data class Song(val id: String, val title: String, val artist: String, val album: String, val duration: Double, val url: String, val art: String)
-data class Album(val id: String, val title: String, val artist: String, val year: Int, val tracks: List<String>, val art: String, val added: Long)
-data class Artist(val id: String, val name: String, val albums: List<String>, val art: String)
-data class MusicList(val id: String, val title: String, val tracks: List<String>, val art: String)
 
-data class Music(val albums: List<Album>, val artists: List<Artist>, val playlists: List<MusicList>, val tracks: Map<String, Song>) {
-    val ready get() = albums.isNotEmpty()
+// La música llega por partes (mac/music.py): álbumes, artistas y listas sin sus canciones (solo cuántas tienen).
+data class Album(val id: String, val title: String, val artist: String, val year: Int, val count: Int, val art: String, val added: Long)
+data class Artist(val id: String, val name: String, val count: Int, val art: String)
+data class MusicList(val id: String, val title: String, val count: Int, val art: String)
+data class Totales(val artists: Int = 0, val albums: Int = 0, val tracks: Int = 0, val playlists: Int = 0)
+
+/** Lo de la sección Música (/api/music/home): tus listas, lo agregado hace poco (ya con sus canciones), la primera
+ *  tanda de artistas y de álbumes y cuántos hay de cada cosa. Lo demás llega con /api/music/more. */
+data class Music(
+    val counts: Totales,
+    val playlists: List<MusicList>,
+    val recent: List<Song>,
+    val artists: List<Artist>,
+    val albums: List<Album>,
+    val reading: Boolean = false,   // la primera vez con mucha música: la computadora todavía la está leyendo
+) {
+    val ready get() = counts.albums > 0
+    fun cuantos(kind: String) = when (kind) {
+        "artists" -> artists.size to counts.artists
+        "albums" -> albums.size to counts.albums
+        else -> playlists.size to counts.playlists
+    }
+}
+
+/** La página de un álbum, un artista o una lista (/api/music/page): las canciones traídas hasta ahora (llegan por
+ *  tandas) y cuántas tiene. error: no se pudo leer ("conexion") o ya no está ("gone"). */
+data class MusicPage(
+    val kind: String,
+    val id: String,
+    val title: String,
+    val total: Int,
+    val songs: List<Song>,
+    val error: String = "",
+) {
+    val completa get() = songs.size >= total
 }
 
 // ---------- lectura ----------
@@ -221,19 +251,71 @@ fun parseMarks(o: JSONObject) = o.optJSONArray("marks").list { m ->
 
 fun parseDubs(o: JSONObject) = o.optJSONArray("dubs").list { d -> d.str("lang").ifEmpty { null }?.let { Doblaje(it, d.str("name").ifEmpty { it }) } }
 
+fun parseSong(t: JSONObject) = Song(t.str("id"), t.str("title"), t.str("artist"), t.str("album"), t.num("duration"), t.str("url"), t.str("art"))
+
+fun parseSongs(arr: JSONArray?) = arr.list { t -> parseSong(t).takeIf { it.id.isNotEmpty() } }
+
+fun parseAlbum(a: JSONObject) = Album(a.str("id"), a.str("title"), a.str("artist"), a.optInt("year", 0), a.optInt("count", 0), a.str("art"), a.optLong("added", 0))
+
+fun parseArtist(a: JSONObject) = Artist(a.str("id"), a.str("name"), a.optInt("count", 0), a.str("art"))
+
+fun parseMusicList(p: JSONObject) = MusicList(p.str("id"), p.str("title"), p.optInt("count", 0), p.str("art"))
+
+/** Una tanda de /api/music/more (artistas, álbumes o listas). */
+fun parseMusicItems(kind: String, arr: JSONArray?): List<Any> = when (kind) {
+    "artists" -> arr.list { parseArtist(it) }
+    "albums" -> arr.list { parseAlbum(it) }
+    else -> arr.list { parseMusicList(it) }
+}
+
+/** /api/music/home. */
 fun parseMusic(o: JSONObject): Music {
-    val tracks = LinkedHashMap<String, Song>()
-    o.optJSONObject("tracks")?.let { all ->
-        for (key in all.keys()) all.optJSONObject(key)?.let { t ->
-            tracks[key] = Song(t.str("id").ifEmpty { key }, t.str("title"), t.str("artist"), t.str("album"), t.num("duration"), t.str("url"), t.str("art"))
-        }
-    }
+    val c = o.optJSONObject("counts") ?: JSONObject()
     return Music(
-        albums = o.optJSONArray("albums").list { a ->
-            Album(a.str("id"), a.str("title"), a.str("artist"), a.optInt("year", 0), a.optJSONArray("tracks").strings(), a.str("art"), a.optLong("added", 0))
-        },
-        artists = o.optJSONArray("artists").list { a -> Artist(a.str("id"), a.str("name"), a.optJSONArray("albums").strings(), a.str("art")) },
-        playlists = o.optJSONArray("playlists").list { p -> MusicList(p.str("id"), p.str("title"), p.optJSONArray("tracks").strings(), p.str("art")) },
-        tracks = tracks,
+        counts = Totales(c.optInt("artists", 0), c.optInt("albums", 0), c.optInt("tracks", 0), c.optInt("playlists", 0)),
+        playlists = o.optJSONArray("playlists").list { parseMusicList(it) },
+        recent = parseSongs(o.optJSONArray("recent")),
+        artists = o.optJSONArray("artists").list { parseArtist(it) },
+        albums = o.optJSONArray("albums").list { parseAlbum(it) },
+        reading = o.flag("reading"),
     )
+}
+
+/** /api/music/page: la página con su tanda de canciones (o la marca de que ya no está). */
+fun parseMusicPage(o: JSONObject, kind: String, id: String): MusicPage =
+    if (!o.optBoolean("ok", false)) MusicPage(kind, id, "", 0, emptyList(), "gone")
+    else MusicPage(kind, id, o.str("title"), o.optInt("total", 0), parseSongs(o.optJSONArray("tracks")))
+
+/** /api/music de un servidor de antes (todo junto): lo mismo que la sección, con cada álbum, artista y lista ya
+ *  completo (no hay que pedir nada más). -> la sección y sus páginas ("album:<id>", "artist:<id>", "list:<id>"). */
+fun parseMusicViejo(o: JSONObject): Pair<Music, Map<String, MusicPage>> {
+    val songs = LinkedHashMap<String, Song>()
+    o.optJSONObject("tracks")?.let { all ->
+        for (key in all.keys()) all.optJSONObject(key)?.let { t -> songs[key] = parseSong(t).let { s -> if (s.id.isEmpty()) s.copy(id = key) else s } }
+    }
+    val pages = HashMap<String, MusicPage>()
+    fun page(kind: String, id: String, title: String, ids: List<String>) {
+        val list = ids.mapNotNull { songs[it] }
+        pages["$kind:$id"] = MusicPage(kind, id, title, list.size, list)
+    }
+    val albumTracks = HashMap<String, List<String>>()
+    val albums = o.optJSONArray("albums").list { a ->
+        val ids = a.optJSONArray("tracks").strings()
+        albumTracks[a.str("id")] = ids
+        page("album", a.str("id"), a.str("title"), ids)
+        Album(a.str("id"), a.str("title"), a.str("artist"), a.optInt("year", 0), ids.size, a.str("art"), a.optLong("added", 0))
+    }
+    val artists = o.optJSONArray("artists").list { a ->
+        val ids = a.optJSONArray("albums").strings()
+        page("artist", a.str("id"), a.str("name"), ids.flatMap { albumTracks[it].orEmpty() })
+        Artist(a.str("id"), a.str("name"), ids.size, a.str("art"))
+    }
+    val lists = o.optJSONArray("playlists").list { p ->
+        val ids = p.optJSONArray("tracks").strings()
+        page("list", p.str("id"), p.str("title"), ids)
+        MusicList(p.str("id"), p.str("title"), ids.size, p.str("art"))
+    }
+    val recent = albums.sortedByDescending { it.added }.flatMap { albumTracks[it.id].orEmpty() }.take(40).mapNotNull { songs[it] }
+    val m = Music(Totales(artists.size, albums.size, songs.size, lists.size), lists, recent, artists, albums)
+    return m to pages
 }

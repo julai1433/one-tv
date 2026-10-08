@@ -4,6 +4,9 @@ import app.onetv.tv.data.chooseAudio
 import app.onetv.tv.data.chooseSub
 import app.onetv.tv.data.parseLibrary
 import app.onetv.tv.data.parseMusic
+import app.onetv.tv.data.parseMusicPage
+import app.onetv.tv.data.parseMusicViejo
+import app.onetv.tv.data.Totales
 import app.onetv.tv.data.parseYtHome
 import app.onetv.tv.data.spokenText
 import org.json.JSONObject
@@ -117,13 +120,50 @@ class LecturaTest {
 
     @Test
     fun lee_la_musica() {
-        val m = parseMusic(JSONObject("""{"ok": true, "albums": [{"id": "a1", "title": "Ondas", "artist": "Orquesta", "year": 2019,
-            "tracks": ["t1"], "art": "/music/art/a1.jpg", "added": 5}], "artists": [{"id": "r1", "name": "Orquesta", "albums": ["a1"]}],
-            "playlists": [], "tracks": {"t1": {"id": "t1", "title": "Seno", "artist": "Orquesta", "album": "Ondas", "duration": 20.0,
-            "url": "/music/t1/audio", "art": "/music/art/a1.jpg"}}}"""))
+        // /api/music/home: lo de la sección, sin las canciones de cada álbum (llegan por partes).
+        val m = parseMusic(JSONObject("""{"ok": true, "counts": {"artists": 3851, "albums": 7153, "tracks": 70000, "playlists": 1},
+            "albums": [{"id": "a1", "title": "Ondas", "artist": "Orquesta", "year": 2019, "count": 12, "art": "/music/art/a1.jpg", "added": 5}],
+            "artists": [{"id": "r1", "name": "Orquesta", "count": 2, "art": "/music/art/a1.jpg"}],
+            "playlists": [{"id": "p1", "title": "Para correr", "count": 60, "art": "/music/art/a1.jpg"}],
+            "recent": [{"id": "t1", "title": "Seno", "artist": "Orquesta", "album": "Ondas", "duration": 20.0,
+            "url": "/music/t1/audio", "art": "/music/art/a1.jpg"}]}"""))
         assertTrue(m.ready)
-        assertEquals("/music/t1/audio", m.tracks.getValue("t1").url)
-        assertEquals(listOf("a1"), m.artists[0].albums)
-        assertFalse(parseMusic(JSONObject("""{"ok": true, "albums": []}""")).ready)
+        assertEquals("/music/t1/audio", m.recent[0].url)
+        assertEquals(12, m.albums[0].count)
+        assertEquals(2, m.artists[0].count)
+        assertEquals(1 to 3851, m.cuantos("artists"))      // quedan muchos por pedir
+        assertEquals(1 to 1, m.cuantos("playlists"))
+        assertFalse(parseMusic(JSONObject("""{"ok": true, "counts": {"albums": 0}}""")).ready)
+        assertTrue(parseMusic(JSONObject("""{"ok": true, "reading": true}""")).reading)
+    }
+
+    @Test
+    fun lee_la_musica_de_un_servidor_de_antes() {
+        // Un servidor que todavía manda todo junto (/api/music): la sección y cada página, ya completas.
+        val (m, pages) = parseMusicViejo(JSONObject("""{"ok": true, "albums": [{"id": "a1", "title": "Ondas", "artist": "Orquesta",
+            "year": 2019, "tracks": ["t1", "t2"], "art": "/music/art/a1.jpg", "added": 5}],
+            "artists": [{"id": "r1", "name": "Orquesta", "albums": ["a1"], "art": "/music/art/a1.jpg"}],
+            "playlists": [{"id": "p1", "title": "Favoritas", "tracks": ["t2"], "art": "/music/art/a1.jpg"}],
+            "tracks": {"t1": {"id": "t1", "title": "Seno", "artist": "Orquesta", "album": "Ondas", "duration": 20.0,
+            "url": "/music/t1/audio", "art": "/music/art/a1.jpg"}, "t2": {"id": "t2", "title": "Coseno", "artist": "Orquesta",
+            "album": "Ondas", "duration": 30.0, "url": "/music/t2/audio", "art": "/music/art/a1.jpg"}}}"""))
+        assertTrue(m.ready)
+        assertEquals(Totales(1, 1, 2, 1), m.counts)
+        assertEquals(listOf("t1", "t2"), m.recent.map { it.id })
+        assertEquals(2, m.albums[0].count)
+        assertEquals(listOf("t1", "t2"), pages.getValue("artist:r1").songs.map { it.id })
+        assertTrue(pages.getValue("list:p1").completa)
+    }
+
+    @Test
+    fun lee_la_pagina_de_un_album_por_tandas() {
+        val p = parseMusicPage(JSONObject("""{"ok": true, "kind": "artist", "id": "r1", "title": "Varios", "total": 2945,
+            "offset": 0, "tracks": [{"id": "t1", "title": "Seno", "artist": "A", "album": "B", "duration": 3,
+            "url": "/music/t1/audio", "art": "/music/art/a1.jpg"}, {"title": "sin id"}]}"""), "artist", "r1")
+        assertEquals(listOf("t1"), p.songs.map { it.id })    // sin id no se puede escuchar
+        assertEquals(2945, p.total)
+        assertFalse(p.completa)
+        val gone = parseMusicPage(JSONObject("""{"ok": false, "error": "Eso ya no está en tu música."}"""), "album", "x")
+        assertEquals("gone", gone.error)
     }
 }

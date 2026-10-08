@@ -16,7 +16,9 @@
 #   python3 pruebas/datos_demo.py servir [carpeta]      igual, en la carpeta que digas (se conserva si ya existe)
 #   python3 pruebas/datos_demo.py servir --tv [IP]      además la app del Roku se instala apuntando a esta biblioteca
 #   python3 pruebas/datos_demo.py capturas SALIDA       arma, sirve, toma las capturas (Chrome sin ventana), apaga todo
-# Variable opcional: CINE_PUERTO (por omisión 8793). Necesita ffmpeg; las capturas, Google Chrome o Brave.
+# Variables opcionales: CINE_PUERTO (por omisión 8793); CINE_NOMBRE, el nombre de la computadora que ven la web y la TV
+# (para probar con dos servidores a la vez); CINE_DEMO_SIN_TV=1, sin la TV «conectada» de ejemplo (la web dice «Sin TV»).
+# Necesita ffmpeg; las capturas, Google Chrome o Brave.
 #
 # «--tv»: pensado para tomar capturas de la TV con la biblioteca de ejemplo. Usa la IP y la contraseña del modo
 # desarrollador de tu config.json (o de ROKU_IP / ROKU_PASSWORD) e INSTALA la app del Roku apuntando al puerto 8793.
@@ -333,19 +335,22 @@ def servir(base, tv=None):
         c.update({k: ejemplo[k] for k in ("carpetas", "musica", "descargas", "sin_conexion", "sin_conexion_gb")})
         c["roku_ip"] = tv or os.environ.get("ROKU_IP") or propia.get("roku_ip", "") if tv is not None else ""
         c["roku_password"] = os.environ.get("ROKU_PASSWORD") or propia.get("roku_password", "") if tv is not None else ""
+        if os.environ.get("CINE_NOMBRE"):
+            c["nombre"] = os.environ["CINE_NOMBRE"]
         return c
     cine.load_config = cargar
     iniciar = cine.App.__init__
 
     def con_ejemplos(self, *a, **k):
         iniciar(self, *a, **k)
-        if tv is None:
+        if tv is None and os.environ.get("CINE_DEMO_SIN_TV") != "1":
             class TeleDeEjemplo:   # para que la web se vea con la TV «conectada» (dirección reservada para ejemplos)
                 ip = "192.0.2.10"
 
                 def __getattr__(self, _):
                     return lambda *a, **k: None
             self.roku = TeleDeEjemplo()
+            self.roku_name = "TV de la sala"
         import threading
 
         def youtube():   # canales públicos del «Takeout» inventado y lo nuevo de cada uno (el RSS público de YouTube)
@@ -551,15 +556,17 @@ def capturas(salida):
                 api("api/queue/add", {"kind": "item", "id": x})
         if vid:
             api("api/queue/add", {"kind": "yt", "id": vid, "title": vtitulo})
-        for tid in js("music.albums.find(a => /Valses/.test(a.title)).tracks.slice(0, 2)") or []:
-            api("api/queue/add", {"kind": "track", "id": tid})
+        valses = js("music.albums.find(a => /Valses/.test(a.title)).id")   # la música llega por partes (mac/music.py)
+        for t in api(f"api/music/page?kind=album&id={valses}")["tracks"][:2]:
+            api("api/queue/add", {"kind": "track", "id": t["id"]})
         # El panel «En la TV»: primero con una película, luego con música (la TV reporta con POST a /api/progress).
         ir("#inicio", 2)
         peli = js("(() => { const x = Object.values(lib.items).find(i => /Metropolis/.test(i.title)); return {id: x.id, d: x.duration}; })()")
         tele(js, ir, foto, "laptop-tele-pelicula.png", {"id": peli["id"], "p": 140, "d": peli["d"], "ev": "tick", "state": "play"}, False)
         api("api/progress", {"id": peli["id"], "p": 140, "d": peli["d"], "ev": "stop", "state": "pause"})
-        pistas = js("music.albums.find(a => /Nocturnos/.test(a.title)).tracks")
-        t = js(f"music.tracks[{json.dumps(pistas[1])}]")
+        nocturnos = js("music.albums.find(a => /Nocturnos/.test(a.title)).id")
+        pistas = api(f"api/music/page?kind=album&id={nocturnos}")["tracks"]
+        t = pistas[1]
         tele(js, ir, foto, "laptop-tele-musica.png",
              {"id": "track:" + t["id"], "p": 70, "d": t["duration"] or 240, "ev": "tick", "state": "play", "song": {"i": 1, "n": len(pistas)}}, False)
         api("api/progress", {"id": "track:" + t["id"], "p": 190, "d": t["duration"] or 240, "ev": "end"})

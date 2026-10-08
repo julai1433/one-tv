@@ -94,6 +94,26 @@ class Musica(unittest.TestCase):
         tid = next(iter(self.music.public()["tracks"]))
         self.assertEqual(fresh.track(tid)["id"], tid)
 
+    def test_por_partes_con_la_musica_chica(self):
+        h = self.music.home()
+        self.assertEqual(h["counts"], {"artists": 3, "albums": 3, "tracks": 4, "playlists": 1})
+        self.assertEqual([p["count"] for p in h["playlists"]], [2])
+        fav = self.music.page("list", h["playlists"][0]["id"])
+        self.assertEqual([t["title"] for t in fav["tracks"]], ["El Aparato", "Oh Yeah"])
+        yello = next(a for a in h["artists"] if a["name"] == "Yello")
+        p = self.music.page("artist", yello["id"])
+        self.assertEqual(([t["title"] for t in p["tracks"]], p["album_count"]), (["Oh Yeah", "Desire"], 1))
+        self.assertEqual(self.music.tracks_pub([fav["tracks"][1]["id"], "x"])[0]["title"], "Oh Yeah")
+
+    def test_volver_a_mirar_no_hace_esperar(self):
+        self.music.home()
+        self.music.scanned_at -= 60   # ya pasó un rato: se vuelve a mirar en segundo plano
+        started = threading.Event()
+        real = self.music.scan
+        self.music.scan = lambda force=False: (started.set(), real(force))[1]
+        self.assertEqual(self.music.home()["counts"]["tracks"], 4)   # contesta con lo que tiene
+        self.assertTrue(started.wait(5))
+
     def test_portada(self):
         self.music.scan()
         d = self.music.public()
