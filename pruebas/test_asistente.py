@@ -173,6 +173,16 @@ class Explorador(ConCarpetasFalsas):
             return
         self.assertFalse(w.browse(str(enlace))["ok"])   # un enlace que sale del lugar: no
 
+    def test_un_disco_dentro_de_una_carpeta_protegida(self):
+        # Como en Windows, donde lo temporal vive en la carpeta personal, dentro de AppData: manda el lugar más de adentro
+        casa = Path(self._t.name).resolve() / "casa"
+        disco = casa / "AppData" / "Local" / "Temp" / "disco"
+        (disco / "Videos").mkdir(parents=True)
+        with mock.patch.object(Path, "home", return_value=casa):
+            roots = [casa, disco]
+            self.assertEqual(asistente.resolve_allowed(str(disco / "Videos"), roots), disco / "Videos")
+            self.assertIsNone(asistente.resolve_allowed(str(casa / "AppData" / "Local"), roots))
+
 
 class Permisos(unittest.TestCase):
     def test_direcciones_de_la_casa(self):

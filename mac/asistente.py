@@ -437,19 +437,22 @@ def resolve_allowed(path, roots):
             return None
     except (OSError, RuntimeError):
         return None
+    best = None   # el lugar más de adentro que la contiene (un disco dentro de la carpeta personal manda sobre ella)
     for root in roots:
         try:
             r = Path(root).resolve()
         except (OSError, RuntimeError):
             continue
-        if p == r or r in p.parents:
-            rel = p.relative_to(r).parts
-            if any(_hidden(part) for part in rel):
-                return None
-            if r == Path.home().resolve() and rel and _key(rel[0]) in HOME_SKIP - {"music", "música", "musica"}:
-                return None   # Library, AppData…: sí la música (para elegir dónde está)
-            return p
-    return None
+        if (p == r or r in p.parents) and (best is None or len(r.parts) > len(best.parts)):
+            best = r
+    if best is None:
+        return None
+    rel = p.relative_to(best).parts
+    if any(_hidden(part) for part in rel):
+        return None
+    if best == Path.home().resolve() and rel and _key(rel[0]) in HOME_SKIP - {"music", "música", "musica"}:
+        return None   # Library, AppData…: sí la música (para elegir dónde está)
+    return p
 
 
 # ---------------------------------------------------------------- contar rápido

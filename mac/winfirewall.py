@@ -28,6 +28,7 @@ CANCELLED = 1223                # ERROR_CANCELLED: en la ventana de permiso se e
 
 # Qué perfiles de red tienen el firewall prendido y cómo están las reglas «One TV» (una línea por regla). Sin permisos.
 CHECK = r"""$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $prendidos = @(Get-NetFirewallProfile | Where-Object { $_.Enabled -eq 'True' } | ForEach-Object { $_.Name })
 'perfiles|' + ($prendidos -join ',')
 foreach ($r in @(Get-NetFirewallRule -DisplayName 'One TV' -ErrorAction SilentlyContinue)) {
@@ -35,6 +36,7 @@ foreach ($r in @(Get-NetFirewallRule -DisplayName 'One TV' -ErrorAction Silently
   $a = $r | Get-NetFirewallAddressFilter
   'regla|{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f $r.Enabled, $r.Action, $r.Direction, $p.Protocol, ($p.LocalPort -join ','), ($a.RemoteAddress -join ','), $r.Profile
 }
+exit 0   # sin regla, Get-NetFirewallRule deja $? en falso y PowerShell saldría con 1 aunque todo salió bien
 """
 
 # La regla: se borra la que hubiera (otro puerto, repetida, desactivada) y se crea una sola. Con permisos.
