@@ -32,7 +32,7 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
   cada NAS, sus carpetas compartidas y la de datos, el comando de Docker, qué dice si falta Docker en cada uno, y que
   los docker-compose de `docs/INSTALAR-DOCKER.md` monten lo que dicen.
 - `test_instaladores.py` — el `.pkg` de la Mac (en una Mac lo arma y lo instala «solo para ti» con un `instalar.sh`
-  falso), los nombres fijos de los instaladores, la página del botón (con Node) y `herramientas/firmar_mac.sh` sin
+  falso), los nombres fijos de los instaladores, la página del botón (con Node) y la firma de la Mac (si existe su script privado) sin
   certificados (con programas falsos).
 - `test_bienvenida.py` — el primer arranque sin preguntas, `/bienvenida`, `cine instalador` y la copia de `config.json`
   del servicio. `test_asistente.py` — el asistente de `/bienvenida` (`mac/asistente.py`): busca carpetas con videos en

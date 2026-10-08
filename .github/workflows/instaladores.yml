@@ -1,11 +1,10 @@
-# Al subir a main: arma los instaladores de doble clic (herramientas/armar_instaladores.sh) y los publica en la versión
+# Al subir a main: arma los instaladores de doble clic (instaladores/armar.sh) y los publica en la versión
 # de GitHub «instaladores», siempre la misma y con nombres fijos, para que el botón «Descargar One TV» de la página
 # (pagina/index.html) no cambie nunca:
 #   https://github.com/julai1433/one-tv/releases/download/instaladores/Instalar-One-TV-Mac.pkg
 #   https://github.com/julai1433/one-tv/releases/download/instaladores/Instalar-One-TV-Windows.cmd
 # No se marca como «la más nueva» (latest): esa es la de la app de la TV (app-tv.yml, …/releases/latest/download/…).
-# Solo se sube lo que cambió: el .pkg sale sin firmar y se firma después en la Mac del dueño (herramientas/firmar_mac.sh
-# --subir); así un cambio en el de Windows no reemplaza el .pkg ya firmado.
+# Solo se sube lo que cambió (un cambio en el de Windows no vuelve a subir el de la Mac).
 # Los instaladores bajan instalar.sh y One TV de main al correr: no hace falta volver a armarlos por cada cambio.
 name: Instaladores
 
@@ -15,7 +14,7 @@ on:
     paths:
       - "instaladores/**"
       - "Instalar One TV.cmd"
-      - "herramientas/armar_instaladores.sh"
+      - "instaladores/armar.sh"
       - ".github/workflows/instaladores.yml"
   workflow_dispatch:
 
@@ -46,10 +45,10 @@ jobs:
             cambios="todo"   # a mano (workflow_dispatch) o primera vez: los dos
           fi
           cuales=""
-          if [ "$cambios" = todo ] || echo "$cambios" | grep -qE '^(instaladores/mac/|herramientas/armar_instaladores.sh|\.github/workflows/instaladores.yml)'; then
+          if [ "$cambios" = todo ] || echo "$cambios" | grep -qE '^(instaladores/mac/|instaladores/armar.sh|\.github/workflows/instaladores.yml)'; then
             cuales="mac"
           fi
-          if [ "$cambios" = todo ] || echo "$cambios" | grep -qE '^(Instalar One TV.cmd|herramientas/armar_instaladores.sh|\.github/workflows/instaladores.yml)'; then
+          if [ "$cambios" = todo ] || echo "$cambios" | grep -qE '^(Instalar One TV.cmd|instaladores/armar.sh|\.github/workflows/instaladores.yml)'; then
             cuales="$cuales windows"
           fi
           echo "cuales=$cuales" >> "$GITHUB_OUTPUT"
@@ -57,7 +56,7 @@ jobs:
 
       - name: Armar
         if: steps.cambios.outputs.cuales != ''
-        run: herramientas/armar_instaladores.sh dist "${{ steps.cambios.outputs.cuales }}"
+        run: instaladores/armar.sh dist "${{ steps.cambios.outputs.cuales }}"
 
       - name: Publicar en la versión «instaladores»
         if: steps.cambios.outputs.cuales != ''
@@ -76,6 +75,3 @@ jobs:
               --title "Instaladores de One TV" --notes "$notas"
           fi
           gh release upload instaladores dist/* --clobber
-          if echo "${{ steps.cambios.outputs.cuales }}" | grep -q mac; then
-            echo "::notice::El instalador de la Mac quedó sin firmar: fírmalo en la Mac con herramientas/firmar_mac.sh --subir"
-          fi

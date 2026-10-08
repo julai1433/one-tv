@@ -94,10 +94,6 @@ de la carpeta y luego bórrala.
 - **La página**: `pagina/` (armada con `pagina/armar.sh`), publicada por `.github/workflows/pagina.yml` al subir a main.
   Una sola vez: Settings → Pages → Source: «GitHub Actions».
 - **Los instaladores**: `.github/workflows/instaladores.yml` arma el .pkg y el .cmd
-  (`herramientas/armar_instaladores.sh`) y los sube a la versión «instaladores» (sin marcarla como la más nueva: esa
+  (`instaladores/armar.sh`) y los sube a la versión «instaladores» (sin marcarla como la más nueva: esa
   es la de la app de la TV). Solo cuando cambian `instaladores/`, `Instalar One TV.cmd` o el guion que los arma: los
   dos bajan instalar.sh y One TV de main al correr.
-- **Firma de Apple**: después de que ese flujo suba un .pkg nuevo, en la Mac con el certificado «Developer ID
-  Installer» y el perfil de notarización «one-tv»: `herramientas/firmar_mac.sh --subir` (baja el .pkg, lo firma, lo
-  notariza, lo engrapa y lo vuelve a subir con el mismo nombre). Ya firmado, se puede quitar de `pagina/index.html` el
-  aviso «Si la Mac dice que no puede comprobarlo…» (`data-sin-firma`).

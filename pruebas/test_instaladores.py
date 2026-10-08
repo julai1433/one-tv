@@ -63,7 +63,7 @@ class InstaladorMac(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("pkgbuild") and shutil.which("installer"), "sin pkgbuild")
     def test_el_pkg_se_instala_solo_para_ti_sin_contrasena(self):
-        """El .pkg de verdad (herramientas/armar_instaladores.sh), con un instalar.sh falso: macOS corre su guion con
+        """El .pkg de verdad (instaladores/armar.sh), con un instalar.sh falso: macOS corre su guion con
         tu usuario y dentro de tu sesión, sin pedir contraseña ni dejar nada instalado."""
         marca = self.dir / "marca.txt"
         falso = guion(self.dir / "instalar.sh", f'echo "YO=$(id -u) HOME=$HOME" > "{marca}"')
@@ -74,7 +74,7 @@ class InstaladorMac(unittest.TestCase):
         self.assertNotEqual(texto, POSTINSTALL.read_text())
         variante.write_text(texto)
         variante.chmod(0o755)
-        r = subprocess.run([str(ROOT / "herramientas" / "armar_instaladores.sh"), str(self.dir / "dist"), "mac"],
+        r = subprocess.run([str(ROOT / "instaladores" / "armar.sh"), str(self.dir / "dist"), "mac"],
                            capture_output=True, text=True, env={**os.environ, "ONE_TV_POSTINSTALL": str(variante)})
         self.assertEqual(r.returncode, 0, r.stderr)
         pkg = self.dir / "dist" / "Instalar-One-TV-Mac.pkg"
@@ -86,12 +86,12 @@ class InstaladorMac(unittest.TestCase):
 
 
 class NombresFijos(unittest.TestCase):
-    """El botón apunta a la versión «instaladores» con los nombres que arma herramientas/armar_instaladores.sh y sube
+    """El botón apunta a la versión «instaladores» con los nombres que arma instaladores/armar.sh y sube
     .github/workflows/instaladores.yml."""
 
     def test_los_mismos_nombres_en_todos_lados(self):
         pagina = PAGINA.read_text(encoding="utf-8")
-        armar = (ROOT / "herramientas" / "armar_instaladores.sh").read_text(encoding="utf-8")
+        armar = (ROOT / "instaladores" / "armar.sh").read_text(encoding="utf-8")
         flujo = (ROOT / ".github" / "workflows" / "instaladores.yml").read_text(encoding="utf-8")
         for nombre in NOMBRES:
             self.assertIn(f'href="{VERSION}{nombre}"', pagina)
@@ -110,10 +110,10 @@ class NombresFijos(unittest.TestCase):
         self.assertIn(VERSION + NOMBRES[0], guia)
         self.assertIn("https://github.com/julai1433/one-tv/blob/main/docs/INSTALAR-DOCKER.md", pagina)
 
-    @unittest.skipUnless(BASH, "herramientas/armar_instaladores.sh necesita bash")
+    @unittest.skipUnless(BASH, "instaladores/armar.sh necesita bash")
     def test_el_de_windows_es_el_de_siempre(self):
         with tempfile.TemporaryDirectory() as t:
-            r = subprocess.run([BASH, str(ROOT / "herramientas" / "armar_instaladores.sh"), t, "windows"],
+            r = subprocess.run([BASH, str(ROOT / "instaladores" / "armar.sh"), t, "windows"],
                                capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(Path(t, NOMBRES[1]).read_bytes(), (ROOT / "Instalar One TV.cmd").read_bytes())
