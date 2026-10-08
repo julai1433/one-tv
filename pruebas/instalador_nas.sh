@@ -5,7 +5,9 @@
 #    internet), crea el contenedor «one-tv» (red host, arranque solo, carpetas de solo lectura) y /bienvenida responde.
 # 2. Como si fuera un Synology (/etc/synoinfo.conf y /volume1, sin --docker): lo reconoce, pone al día el contenedor
 #    con /volume1 de solo lectura y los datos en /volume1/docker/one-tv; One TV ve tus videos y no puede escribirles.
-# 3. Con un contenedor «one-tv» que no creó el instalador: no lo toca.
+# 3. Con un contenedor «one-tv» que no creó el instalador y sin terminal (no puede preguntar): no lo toca.
+# 4. Con un One TV hecho a mano (otro nombre, la biblioteca en /biblioteca, un volumen en /datos, -p 8808:8765) y la
+#    respuesta «s»: lo cambia por el del instalador conservando todo eso, y responde en el mismo puerto.
 # La imagen de One TV sale de este repositorio (Dockerfile), no de GitHub. No busca ninguna TV. Puerto 8808.
 # Uso: pruebas/instalador_nas.sh     (borra al terminar el contenedor, su volumen y las imágenes que construyó)
 set -uo pipefail
@@ -80,12 +82,28 @@ adentro test -f /volume1/docker/one-tv/config.json; paso $? "config.json en la c
 [ "$(adentro docker ps -a --filter name=one-tv --format '{{.Names}}' | wc -l | tr -d ' ')" = 1 ]; paso $? "un solo contenedor one-tv"
 adentro wget -q -O /dev/null "http://127.0.0.1:$PUERTO/bienvenida"; paso $? "/bienvenida responde"
 
-echo "== 3. Un contenedor «one-tv» ajeno no se toca"
+echo "== 3. Un contenedor «one-tv» hecho a mano, sin terminal: no se toca"
 adentro docker rm -f one-tv >/dev/null
 adentro docker run -d --name one-tv --entrypoint sleep "$IMG_ONE_TV" 600 >/dev/null
 como_ana "$VARIABLES bash /casa/instalar.sh" > "$CASA/salida3.txt" 2>&1
-[ $? != 0 ] && grep -q "no creó este instalador" "$CASA/salida3.txt"; paso $? "lo dice y termina sin tocarlo"
+[ $? != 0 ] && grep -q "no hay una terminal" "$CASA/salida3.txt"; paso $? "lo dice y termina sin tocarlo"
 [ "$(adentro docker inspect -f '{{.Config.Entrypoint}}' one-tv)" = "[sleep]" ]; paso $? "el contenedor ajeno sigue igual"
+
+echo "== 4. Un One TV hecho a mano con otro nombre: con «s» se cambia y conserva todo"
+adentro docker rm -f one-tv >/dev/null
+adentro docker run -d --name onetv-a-mano -v onetv_datos:/datos -v /volume1/video:/biblioteca -p "$PUERTO:8765" \
+  -e ROKU_PASSWORD=clave -e PUID=1000 "$IMG_ONE_TV" >/dev/null
+como_ana "ONE_TV_IMAGEN=$IMG_ONE_TV ONE_TV_IMAGEN_ARCHIVO=/casa/imagen.tar ONE_TV_RESPUESTA=s bash /casa/instalar.sh" 2>&1 |
+  tee "$CASA/salida4.txt" | sed 's/^/    /'
+paso $? "el instalador terminó bien"
+grep -q "Cambié tu One TV de antes («onetv-a-mano»)" "$CASA/salida4.txt"; paso $? "dijo que lo cambió"
+[ "$(adentro docker ps -a --format '{{.Names}}')" = one-tv ]; paso $? "queda un solo contenedor, «one-tv»"
+m="$(adentro docker inspect -f '{{range .Mounts}}{{.Name}}{{.Destination}}:{{.RW}} {{end}}' one-tv)"
+echo "$m" | grep -q "onetv_datos/datos:true"; paso $? "sus datos siguen en el volumen"
+echo "$m" | grep -q " /biblioteca:false\|^/biblioteca:false"; paso $? "/biblioteca de solo lectura"
+adentro docker exec one-tv ls /biblioteca | grep -q "Película (2020).mkv"; paso $? "One TV ve los videos en /biblioteca"
+adentro docker inspect -f '{{.Config.Env}}' one-tv | grep -q "ROKU_PASSWORD=clave"; paso $? "conserva la clave del Roku"
+adentro wget -q -O /dev/null "http://127.0.0.1:$PUERTO/"; paso $? "responde en el mismo puerto ($PUERTO)"
 
 [ "$fallas" = 0 ] && echo "Todo bien." || echo "$fallas cosa(s) fallaron."
 exit $((fallas > 0))

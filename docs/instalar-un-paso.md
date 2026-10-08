@@ -53,7 +53,8 @@ wget -qO- https://raw.githubusercontent.com/julai1433/one-tv/main/instalar.sh | 
 pide tu contraseña **una sola vez**, diciendo para qué. Deja el servicio de systemd que arranca al encender la
 computadora y abre el navegador; en un servidor sin pantalla, dice la dirección exacta para abrir desde otro aparato
 (algo como `http://192.168.1.20:8765/bienvenida`). Para usar Docker en vez de instalar directo:
-`wget -qO- … | bash -s -- --docker`.
+`wget -qO- … | bash -s -- --docker`. Si ya tienes One TV en Docker en esa computadora, lo pone al día ahí, en Docker,
+aunque no pongas `--docker`.
 
 ## NAS
 
@@ -70,8 +71,11 @@ TrueNAS SCALE, OpenMediaVault) e instala con **Docker**:
   `/share/Container/one-tv`…) y **todas las carpetas compartidas de solo lectura** en la misma ruta (`/volume1`,
   `/mnt/user`, `/share`, cada pool de `/mnt`…): en el asistente se eligen las de videos y música sin volver a crearlo.
 - Al final dice la dirección para abrirlo desde la computadora o el teléfono: `http://<ip-del-nas>:8765/bienvenida`.
-- Volver a correrlo baja la versión nueva y vuelve a crear el contenedor con lo mismo (los datos se quedan). Un
-  contenedor `one-tv` que no creó el instalador (por ejemplo, un proyecto de Container Manager) no se toca.
+- Volver a correrlo baja la versión nueva y vuelve a crear el contenedor con lo mismo (los datos se quedan).
+- Si lo instalaste a mano (Portainer, un proyecto de Container Manager, otro nombre de contenedor), vuelve a correr el
+  comando: te ofrece cambiarlo por el del instalador, sin perder nada (datos, carpetas, clave del Roku y puerto). El de
+  antes solo se borra cuando el nuevo ya responde; si el nuevo no arranca, vuelve como estaba. Si encuentra más de un
+  One TV en Docker, no toca ninguno y dice cuáles son.
 
 **Sin terminal**: un «proyecto» con un docker-compose listo para pegar en Container Manager (Synology), Container
 Station (QNAP), Unraid, TrueNAS o Portainer: [INSTALAR-DOCKER.md](INSTALAR-DOCKER.md).

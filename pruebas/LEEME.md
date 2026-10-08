@@ -25,12 +25,16 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
   PowerShell 7, con los comandos del firewall reemplazados por unos falsos. Necesita Docker.
 - `instalador_nas.sh` — `instalar.sh` con Docker en un Ubuntu con systemd dentro de Docker y sin Docker instalado:
   con `--docker` instala Docker con el oficial (necesita internet) y crea el contenedor `one-tv`; luego, como si fuera
-  un Synology, lo reconoce y monta `/volume1` de solo lectura; un `one-tv` ajeno no lo toca. Puerto 8808. Borra todo.
+  un Synology, lo reconoce y monta `/volume1` de solo lectura; un `one-tv` hecho a mano, sin terminal, no lo toca, y
+  uno hecho a mano con otro nombre (`/biblioteca`, un volumen, `-p`) lo cambia con «s» conservando todo. Puerto 8808.
+  Borra todo.
 - `test_instalador.py` — las funciones de `instalar.sh` (sin red: lo «bajado» son archivos falsos): qué baja según el
   chip, las sumas de verificación, que no vuelva a bajar lo que ya está y que poner al día conserve `config.json`.
 - `test_instalador_nas.py` — la parte de NAS de `instalar.sh` con un sistema de archivos y programas falsos: reconoce
-  cada NAS, sus carpetas compartidas y la de datos, el comando de Docker, qué dice si falta Docker en cada uno, y que
-  los docker-compose de `docs/INSTALAR-DOCKER.md` monten lo que dicen.
+  cada NAS, sus carpetas compartidas y la de datos, el comando de Docker, qué dice si falta Docker en cada uno, que
+  cambie un One TV de Docker hecho a mano solo si dices que sí (conservando datos, carpetas, variables y puerto, y
+  devolviéndolo si el nuevo no arranca), que con dos no toque nada, que en Linux sin `--docker` ponga al día el de
+  Docker, y que los docker-compose de `docs/INSTALAR-DOCKER.md` monten lo que dicen.
 - `test_instaladores.py` — el `.pkg` de la Mac (en una Mac lo arma y lo instala «solo para ti» con un `instalar.sh`
   falso), los nombres fijos de los instaladores, la página del botón (con Node) y la firma de la Mac (si existe su script privado) sin
   certificados (con programas falsos).

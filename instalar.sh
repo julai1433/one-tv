@@ -26,16 +26,20 @@
 #    el chip de video (/dev/dri) si lo hay, los datos en una carpeta clara del NAS (por ejemplo docker/one-tv) y TODAS
 #    las carpetas compartidas montadas de solo lectura, en la misma ruta que en el NAS: así el asistente del navegador
 #    deja elegir las de videos y música sin volver a crear el contenedor. Volver a correrlo lo pone al día.
+#    Si ya había un One TV en Docker hecho a mano (con Portainer, un proyecto de la app de Docker del NAS…), pregunta
+#    si lo cambia por este, conservando sus datos, sus carpetas (en la misma ruta de adentro, de solo lectura), sus
+#    variables y su puerto; el de antes solo se borra cuando el nuevo ya responde (si no, vuelve como estaba).
 # 3. Espera a que responda y dice la dirección para abrir el asistente desde otro aparato
 #    (http://<ip-del-nas>:8765/bienvenida).
+# En otro Linux sin --docker, si ya hay un One TV en Docker, lo pone al día ahí (en vez de instalar otro aparte).
 #
 # Para probarlo sin tocar la computadora: ONE_TV_DIR (otra carpeta), ONE_TV_FUENTE (otro .tar.gz de One TV, una
 # dirección o una carpeta), ONE_TV_SIN_AUTOARRANQUE=1 (sin servicio de arranque: el servidor queda de fondo),
 # ONE_TV_PUERTO (otro puerto, si todavía no hay config.json), CINE_NO_BROWSER=1 (sin abrir el navegador) y
 # ONE_TV_LUGARES="" (en la Mac, no buscar Python ni ffmpeg fuera del PATH: como una Mac sin Homebrew). Con Docker:
 # ONE_TV_RAIZ (un sistema de archivos falso para reconocer el NAS), ONE_TV_IMAGEN (otra imagen), ONE_TV_IMAGEN_ARCHIVO
-# (cargarla de un archivo de «docker save» en vez de bajarla), ONE_TV_DOCKER=1 (como --docker) y ONE_TV_DOCKER_OFICIAL
-# (otro instalador de Docker).
+# (cargarla de un archivo de «docker save» en vez de bajarla), ONE_TV_DOCKER=1 (como --docker), ONE_TV_DOCKER_OFICIAL
+# (otro instalador de Docker) y ONE_TV_RESPUESTA (s o n: contesta sin preguntar si se cambia un One TV hecho a mano).
 # Con ONE_TV_SOLO_FUNCIONES=1 y «source instalar.sh» solo se cargan las funciones (pruebas/test_instalador.py).
 
 REPO="julai1433/one-tv"
@@ -625,20 +629,49 @@ docker_falta() {   # docker_falta NAS ESTADO: qué hacer cuando Docker no está 
 }
 
 GUARDAR_VARIABLES="ROKU_PASSWORD ROKU_IP NOMBRE PUERTO CODIFICADOR TZ"
+FUENTE_IMAGEN="https://github.com/$REPO"   # la etiqueta org.opencontainers.image.source de la imagen (imagen-docker.yml)
 
-contenedor_de_antes() {   # «nuestro» (lo creó este instalador), «ajeno» (otro: un proyecto de Container Manager…) o nada
-  "${DOCKER[@]}" container inspect "$CONTENEDOR" >/dev/null 2>&1 </dev/null || return 0
-  if [ "$("${DOCKER[@]}" container inspect -f '{{index .Config.Labels "one-tv.instalador"}}' "$CONTENEDOR" \
-      2>/dev/null </dev/null)" = 1 ]; then
-    echo nuestro
-  else
-    echo ajeno
-  fi
+inspeccionar() {   # inspeccionar FORMATO CONTENEDOR…: lo que dice Docker de cada uno (sin errores)
+  local formato="$1"
+  shift
+  "${DOCKER[@]}" container inspect -f "$formato" "$@" 2>/dev/null </dev/null
 }
 
-variables_de_antes() {   # lo que se le puso al contenedor de antes y vale la pena conservar (ROKU_PASSWORD=…, uno por línea)
-  local linea v
-  "${DOCKER[@]}" container inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTENEDOR" 2>/dev/null </dev/null |
+sin_version() {   # ghcr.io/julai1433/one-tv:1.0.42 (o …@sha256:…) → ghcr.io/julai1433/one-tv
+  local i="${1%%@*}"
+  case "${i##*/}" in *:*) i="${i%:*}" ;; esac
+  echo "$i"
+}
+
+es_imagen_one_tv() {   # es_imagen_one_tv IMAGEN: ¿es la imagen de One TV, con cualquier versión?
+  local base
+  for base in "ghcr.io/$REPO" "$(sin_version "$IMAGEN")"; do
+    case "$1" in "$base" | "$base:"* | "$base@"*) return 0 ;; esac
+  done
+  return 1
+}
+
+contenedores_one_tv() {   # los One TV que hay en Docker, prendidos o apagados, uno por línea: «nuestro one-tv» (lo creó
+  local ids nombre imagen etiqueta fuente   # este instalador) o «a-mano NOMBRE» (Portainer, un proyecto…)
+  local formato='{{.Name}}|{{.Config.Image}}|{{index .Config.Labels "one-tv.instalador"}}|'
+  formato="$formato"'{{index .Config.Labels "org.opencontainers.image.source"}}'
+  ids="$("${DOCKER[@]}" ps -a -q </dev/null 2>/dev/null)" || return 1
+  [ -n "$ids" ] || return 0
+  # shellcheck disable=SC2086   # (un id por palabra)
+  inspeccionar "$formato" $ids |
+    while IFS='|' read -r nombre imagen etiqueta fuente; do
+      nombre="${nombre#/}"
+      [ -n "$nombre" ] || continue
+      if [ "$nombre" = "$CONTENEDOR" ] || [ "$etiqueta" = 1 ] || [ "$fuente" = "$FUENTE_IMAGEN" ] ||
+          es_imagen_one_tv "$imagen"; then
+        if [ "$nombre" = "$CONTENEDOR" ] && [ "$etiqueta" = 1 ]; then echo "nuestro $nombre"; else echo "a-mano $nombre"; fi
+      fi
+    done
+}
+
+variables_de_antes() {   # variables_de_antes CONTENEDOR: lo que se le puso y vale la pena conservar (ROKU_PASSWORD=…, uno
+  local linea v           # por línea)
+  inspeccionar '{{range .Config.Env}}{{println .}}{{end}}' "$1" |
     while IFS= read -r linea; do
       for v in $GUARDAR_VARIABLES; do
         case "$linea" in "$v="?*) echo "$linea" ;; esac
@@ -646,9 +679,104 @@ variables_de_antes() {   # lo que se le puso al contenedor de antes y vale la pe
     done
 }
 
+# leer_el_de_antes CONTENEDOR: lo que se conserva del One TV que ya había. Deja VARIABLES_DE_ANTES, DATOS_DE_ANTES (la
+# carpeta o el volumen de /datos), MONTAJES_DE_ANTES («origen|destino» de las demás carpetas), STACK_DE_ANTES (el
+# proyecto de compose, como los stacks de Portainer) y PRENDIDO_ANTES (true o false).
+leer_el_de_antes() {
+  local tipo nombre origen destino adentro puerto puertos
+  VARIABLES_DE_ANTES="$(variables_de_antes "$1")"
+  DATOS_DE_ANTES=""
+  MONTAJES_DE_ANTES=""
+  while IFS='|' read -r tipo nombre origen destino; do
+    case "$tipo" in volume) origen="$nombre" ;; bind) ;; *) continue ;; esac
+    [ -n "$origen" ] && [ -n "$destino" ] || continue
+    if [ "$destino" = /datos ]; then
+      DATOS_DE_ANTES="$origen"
+    else
+      MONTAJES_DE_ANTES="$MONTAJES_DE_ANTES$origen|$destino
+"
+    fi
+  done <<EOF
+$(inspeccionar '{{range .Mounts}}{{.Type}}|{{.Name}}|{{.Source}}|{{.Destination}}{{println}}{{end}}' "$1")
+EOF
+  # El puerto: si publicaba el suyo en otro (-p 8080:8765), el nuevo (con la red del equipo) usa ese, para que la TV y
+  # el teléfono lo sigan encontrando donde estaba.
+  if [ "$(inspeccionar '{{.HostConfig.NetworkMode}}' "$1")" != host ]; then
+    adentro="$(echo "$VARIABLES_DE_ANTES" | sed -n 's/^PUERTO=//p' | head -n 1)"
+    adentro="${adentro:-8765}"
+    puertos='{{range $p, $c := .HostConfig.PortBindings}}{{$p}}|{{range $c}}{{.HostPort}} {{end}}{{println}}{{end}}'
+    puerto="$(inspeccionar "$puertos" "$1" | sed -n "s#^$adentro/tcp|\([0-9][0-9]*\).*#\1#p" | head -n 1)"
+    if [ -n "$puerto" ] && [ "$puerto" != "$adentro" ]; then
+      VARIABLES_DE_ANTES="$(echo "$VARIABLES_DE_ANTES" | grep -v '^PUERTO='; echo "PUERTO=$puerto")"
+    fi
+  fi
+  STACK_DE_ANTES="$(inspeccionar '{{index .Config.Labels "com.docker.compose.project"}}' "$1")"
+  PRENDIDO_ANTES="$(inspeccionar '{{.State.Running}}' "$1")"
+}
+
+varios_one_tv() {   # varios_one_tv LISTA: hay más de un One TV en Docker; no se toca ninguno
+  local lista="" linea
+  while IFS= read -r linea; do
+    [ -n "$linea" ] && lista="${lista:+$lista, }«${linea#* }»"
+  done <<EOF
+$1
+EOF
+  falla "Encontré más de un One TV en Docker ($lista). Para no romper nada, no toco ninguno."
+  falla "  Deja solo el que usas: borra los otros (con Portainer, la app de Docker de $EQUIPO o «docker rm NOMBRE»;"
+  falla "  sus datos se quedan) y vuelve a correr este comando."
+}
+
+preguntar_si_cambiar() {   # preguntar_si_cambiar CONTENEDOR: 0 sí, 1 no hay a quién preguntar, 2 no
+  local r
+  paso "Encontré One TV instalado a mano en Docker (el contenedor «$1»)."
+  if [ -n "${ONE_TV_RESPUESTA+x}" ]; then   # (pruebas: la respuesta, sin preguntar)
+    r="$ONE_TV_RESPUESTA"
+    echo "¿Lo cambio por uno que se pone al día solo? Tus datos y tus carpetas se quedan. [S/n] $r"
+  elif ( : </dev/tty ) 2>/dev/null; then   # la terminal, aunque el comando llegue por una tubería («curl … | bash»)
+    printf '¿Lo cambio por uno que se pone al día solo? Tus datos y tus carpetas se quedan. [S/n] '
+    read -r r </dev/tty || r=n
+  else
+    falla "No te puedo preguntar si lo cambio (no hay una terminal), así que no lo toco."
+    falla "  Para cambiarlo, corre este mismo comando en una terminal y contesta «s»."
+    return 1
+  fi
+  case "$r" in "" | [sSyY]*) return 0 ;; esac
+  paso "No lo toco: tu One TV sigue como estaba. Si cambias de idea, vuelve a correr este mismo comando."
+  return 2
+}
+
+apartar_el_de_antes() {   # apartar_el_de_antes CONTENEDOR: lo detiene y le cambia el nombre (queda en APARTADO), sin
+  local n=1               # borrarlo
+  APARTADO="$CONTENEDOR-anterior"
+  while "${DOCKER[@]}" container inspect "$APARTADO" >/dev/null 2>&1 </dev/null; do
+    n=$((n + 1))
+    APARTADO="$CONTENEDOR-anterior-$n"
+  done
+  if ! "${DOCKER[@]}" stop "$1" </dev/null >/dev/null 2>&1; then
+    falla "No pude detener tu One TV de antes («$1»), así que no cambié nada."
+    return 1
+  fi
+  if ! "${DOCKER[@]}" rename "$1" "$APARTADO" </dev/null >/dev/null 2>&1; then
+    [ "$PRENDIDO_ANTES" = true ] && "${DOCKER[@]}" start "$1" </dev/null >/dev/null 2>&1
+    falla "No pude apartar tu One TV de antes («$1»), así que lo dejé como estaba."
+    return 1
+  fi
+}
+
+devolver_el_de_antes() {   # devolver_el_de_antes CONTENEDOR: quita el nuevo y deja el de antes como estaba
+  "${DOCKER[@]}" rm -f "$CONTENEDOR" </dev/null >/dev/null 2>&1
+  if "${DOCKER[@]}" rename "$APARTADO" "$1" </dev/null >/dev/null 2>&1 &&
+      { [ "$PRENDIDO_ANTES" != true ] || "${DOCKER[@]}" start "$1" </dev/null >/dev/null 2>&1; }; then
+    aviso "Dejé tu One TV de antes («$1») como estaba: no cambió nada."
+  else
+    falla "Tu One TV de antes quedó detenido y se llama «${APARTADO}». Para volver a usarlo, desde la app de Docker"
+    falla "  cámbiale el nombre a «$1» y préndelo."
+  fi
+}
+
 armar_docker() {   # armar_docker DATOS COMPARTIDA…: deja en ARGS_DOCKER lo que va después de «docker» para crear el
-  local datos="$1" c v lista="" tz puestas=" PUID PGID ONE_TV_COMPARTIDAS "   # contenedor (VARIABLES_DE_ANTES: las de antes)
-  shift
+  local datos="$1" c v lista="" tz puestas=" PUID PGID ONE_TV_COMPARTIDAS " origen destino ya   # contenedor
+  shift   # (VARIABLES_DE_ANTES y MONTAJES_DE_ANTES: lo del One TV de antes; en MONTADAS quedan las demás carpetas)
   for c in "$@"; do lista="${lista:+$lista:}$c"; done
   # PUID=0: One TV lee como administrador, para poder abrir cualquier carpeta compartida que elijas (Synology y TrueNAS
   # las cuidan con permisos propios); las carpetas van de solo lectura (:ro), así que no puede cambiar ni borrar nada.
@@ -666,6 +794,24 @@ ${VARIABLES_DE_ANTES:-}
 EOF
   ARGS_DOCKER+=(-v "$datos:/datos")
   for c in "$@"; do ARGS_DOCKER+=(-v "$c:$c:ro"); done
+  # Las demás carpetas del One TV de antes (por ejemplo, la de videos en /biblioteca): en la misma ruta de adentro, de
+  # solo lectura, para que su configuración siga sirviendo. Sin repetir las compartidas ni lo que ya está dentro de
+  # ellas, y sin una que ya no existe en el equipo (un disco USB que se quitó).
+  MONTADAS=()
+  while IFS='|' read -r origen destino; do
+    [ -n "$origen" ] && [ -n "$destino" ] && [ "$destino" != /datos ] || continue
+    ya=""
+    for c in "$@" "${MONTADAS[@]}"; do
+      [ "$destino" = "$c" ] && ya=1
+      if [ "$origen" = "$destino" ]; then case "$destino" in "$c"/*) ya=1 ;; esac; fi
+    done
+    [ -z "$ya" ] || continue
+    if [ "$origen" = "$destino" ] && [ ! -e "$RAIZ$origen" ]; then continue; fi
+    ARGS_DOCKER+=(-v "$origen:$destino:ro")
+    MONTADAS+=("$destino")
+  done <<EOF
+${MONTAJES_DE_ANTES:-}
+EOF
   [ -e "$RAIZ/dev/dri" ] && ARGS_DOCKER+=(--device /dev/dri:/dev/dri)   # el chip de video, si lo hay
   ARGS_DOCKER+=("$IMAGEN")
 }
@@ -722,7 +868,7 @@ esperar_one_tv() {   # esperar_one_tv PUERTO: hasta 3 minutos a que responda (o 
 }
 
 instalar_con_docker() {   # instalar_con_docker NAS (o nada: otro Linux con --docker)
-  local nas="$1" estado datos compartidas=() c puerto direccion lista
+  local nas="$1" estado datos compartidas=() c puerto direccion lista encontrados viejo="" a_mano=""
   EQUIPO="$(nombre_equipo "$nas")"
   preparar_docker
   estado=$?
@@ -740,28 +886,47 @@ instalar_con_docker() {   # instalar_con_docker NAS (o nada: otro Linux con --do
   fi
   ok "Docker listo"
 
-  case "$(contenedor_de_antes)" in
-    ajeno)
-      falla "Ya hay un contenedor «${CONTENEDOR}» que no creó este instalador (por ejemplo, un proyecto de la app de Docker"
-      falla "  de tu NAS). Para no romperlo, no lo toco: ponlo al día desde esa app, o bórralo y vuelve a correr este comando."
-      return 1 ;;
-    nuestro) VARIABLES_DE_ANTES="$(variables_de_antes)" ;;
-    *) VARIABLES_DE_ANTES="" ;;
+  # El One TV que ya haya en Docker: el de este instalador se pone al día; uno hecho a mano se cambia si dices que sí.
+  VARIABLES_DE_ANTES=""
+  DATOS_DE_ANTES=""
+  MONTAJES_DE_ANTES=""
+  STACK_DE_ANTES=""
+  encontrados="$(contenedores_one_tv)" ||
+    { falla "Docker no me dijo qué contenedores tiene. Vuelve a correr este comando."; return 1; }
+  case "$(echo "$encontrados" | grep -c .)" in
+    0) ;;
+    1)
+      viejo="${encontrados#* }"
+      if [ "$encontrados" != "nuestro $CONTENEDOR" ]; then
+        preguntar_si_cambiar "$viejo"
+        case $? in 0) a_mano=1 ;; 2) return 0 ;; *) return 1 ;; esac
+      fi
+      leer_el_de_antes "$viejo" ;;
+    *) varios_one_tv "$encontrados"; return 1 ;;
   esac
 
   bajar_imagen || return 1
   while IFS= read -r c; do [ -n "$c" ] && compartidas+=("$c"); done <<EOF
 $(carpetas_nas "$nas")
 EOF
-  datos="$(datos_nas "$nas")"
-  preparar_datos "$datos" || return 1
+  if [ -n "$DATOS_DE_ANTES" ]; then   # los datos siguen donde estaban (una carpeta del equipo o un volumen de Docker)
+    datos="$DATOS_DE_ANTES"
+  else
+    datos="$(datos_nas "$nas")"
+    preparar_datos "$datos" || return 1
+  fi
   armar_docker "$datos" "${compartidas[@]}"
 
   paso "Arrancando One TV…"
-  "${DOCKER[@]}" rm -f "$CONTENEDOR" >/dev/null 2>&1 </dev/null   # (el de antes, si había: los datos se quedan)
+  if [ -n "$a_mano" ]; then
+    apartar_el_de_antes "$viejo" || return 1   # (no se borra hasta que el nuevo responda)
+  else
+    "${DOCKER[@]}" rm -f "$CONTENEDOR" >/dev/null 2>&1 </dev/null   # (el de antes, si había: los datos se quedan)
+  fi
   if ! "${DOCKER[@]}" "${ARGS_DOCKER[@]}" </dev/null >/dev/null 2>"$TMP/contenedor.txt"; then
     falla "Docker no pudo crear el contenedor de One TV. Lo que dijo:"
     head -n 5 "$TMP/contenedor.txt" | sed 's/^/    /' >&2
+    [ -n "$a_mano" ] && devolver_el_de_antes "$viejo"
     return 1
   fi
   puerto="${ONE_TV_PUERTO:-}"
@@ -770,8 +935,16 @@ EOF
   if ! esperar_one_tv "$puerto"; then
     falla "One TV no arrancó. Lo último que dijo:"
     "${DOCKER[@]}" logs --tail 15 "$CONTENEDOR" </dev/null 2>&1 | sed 's/^/    /' >&2
+    [ -n "$a_mano" ] && devolver_el_de_antes "$viejo"
     falla "  Vuelve a correr este comando; si sigue igual, avísanos en https://github.com/$REPO/issues"
     return 1
+  fi
+  if [ -n "$a_mano" ]; then   # el nuevo ya responde: ahora sí se quita el de antes (sus datos se quedan)
+    if "${DOCKER[@]}" rm "$APARTADO" </dev/null >/dev/null 2>&1; then
+      ok "Cambié tu One TV de antes («${viejo}») por este; tus datos y tus carpetas siguen ahí."
+    else
+      aviso "No pude borrar tu One TV de antes (quedó detenido, como «${APARTADO}»): bórralo cuando quieras."
+    fi
   fi
 
   direccion="http://$(ip_de_la_red):$puerto"
@@ -784,12 +957,38 @@ EOF
   echo "    $direccion"
   echo
   case "$direccion" in */bienvenida) echo "Ahí eliges tus carpetas de videos y de música, y la TV." ;; esac
-  if [ ${#compartidas[@]} -gt 0 ]; then
-    lista="${compartidas[0]}"
-    for c in "${compartidas[@]:1}"; do lista="$lista, $c"; done
+  lista=""
+  for c in "${compartidas[@]}" "${MONTADAS[@]}"; do lista="${lista:+$lista, }$c"; done
+  if [ -n "$lista" ]; then
     echo "One TV puede ver tus carpetas ($lista) solo para leerlas: no cambia ni borra nada."
   fi
-  echo "Sus datos quedan en $datos. Para ponerlo al día, vuelve a correr este mismo comando."
+  case "$datos" in
+    /*) echo "Sus datos quedan en $datos. Para ponerlo al día, vuelve a correr este mismo comando." ;;
+    *) echo "Sus datos siguen donde estaban (el volumen «${datos}» de Docker). Para ponerlo al día, vuelve a correr este"
+       echo "mismo comando." ;;
+  esac
+  if [ -n "$a_mano" ] && [ -n "$STACK_DE_ANTES" ]; then
+    aviso "El stack «${STACK_DE_ANTES}» (de Portainer o de la app de Docker) ya no hace falta; si lo borras, no borres sus datos."
+  fi
+}
+
+one_tv_en_docker() {   # en un Linux sin --docker: ¿ya hay un One TV en Docker? (deja DOCKER listo). Solo pide la
+  local d              # contraseña si Docker la necesita y hay un One TV de Docker corriendo.
+  d="$(buscar_docker)" || return 1
+  if "$d" ps -a -q </dev/null >/dev/null 2>&1; then
+    DOCKER=("$d")
+  elif [ "$(id -u)" = 0 ] || ! command -v sudo >/dev/null 2>&1; then
+    return 1
+  elif sudo -n "$d" ps -a -q </dev/null >/dev/null 2>&1; then
+    DOCKER=(sudo "$d")
+  elif ps -eo args 2>/dev/null | grep -q '[/]app/mac/cine\.py' &&
+      EQUIPO="$(nombre_equipo "")" && pedir_permiso "para poner al día One TV, que ya está en Docker" &&
+      sudo "$d" ps -a -q </dev/null >/dev/null 2>&1; then
+    DOCKER=(sudo "$d")
+  else
+    return 1
+  fi
+  [ -n "$(contenedores_one_tv)" ]
 }
 
 # ---------------------------------------------------------------- todo junto
@@ -824,6 +1023,12 @@ main() {
     echo "One TV: instalando (o poniendo al día) en $(nombre_equipo "$nas") con Docker. Tarda unos minutos; no cierres esta ventana."
     echo
     instalar_con_docker "$nas"
+    return
+  fi
+  if [ "$sistema" = Linux ] && one_tv_en_docker; then   # (otro One TV aparte chocaría con el de Docker en el puerto)
+    echo "One TV ya está en Docker en este equipo: lo pongo al día ahí, en Docker. Tarda unos minutos; no cierres esta ventana."
+    echo
+    instalar_con_docker ""
     return
   fi
 

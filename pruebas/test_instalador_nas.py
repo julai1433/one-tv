@@ -1,53 +1,166 @@
 # El instalador de un paso en un NAS (instalar.sh, la parte de Docker): reconoce cada NAS (Synology, Unraid, QNAP,
 # TrueNAS SCALE, OpenMediaVault) por sus archivos, elige sus carpetas compartidas y la de datos, arma el comando de
 # Docker (red «host», arranque con el NAS, carpetas de solo lectura en la misma ruta, /dev/dri si lo hay), dice cómo
-# conseguir Docker donde no se puede instalar desde la terminal, lo instala con el oficial en un Linux común, no toca un
-# contenedor «one-tv» ajeno y, al poner al día, conserva lo que tenía el de antes. Todo con un sistema de archivos falso
-# (ONE_TV_RAIZ) y programas falsos (docker, sudo, curl, ip…): sin red, sin Docker y sin NAS. También revisa que los
-# docker-compose de docs/INSTALAR-DOCKER.md monten lo mismo que dicen en ONE_TV_COMPARTIDAS.
+# conseguir Docker donde no se puede instalar desde la terminal, lo instala con el oficial en un Linux común y, al poner
+# al día, conserva lo que tenía el de antes. Un One TV de Docker hecho a mano (Portainer, otro nombre, /biblioteca, un
+# volumen, -p 8080:8765) se cambia solo si dices que sí, conservando todo eso, y vuelve como estaba si el nuevo no
+# arranca; con dos, no se toca nada; en un Linux sin --docker, un One TV de Docker se pone al día ahí. Todo con un
+# sistema de archivos falso (ONE_TV_RAIZ) y programas falsos (docker, sudo, curl, ip…): sin red, sin Docker y sin NAS.
+# También revisa que los docker-compose de docs/INSTALAR-DOCKER.md monten lo mismo que dicen en ONE_TV_COMPARTIDAS.
 # python3 -m unittest discover -s pruebas -p "test_instalador_nas.py"
-import os, re, shutil, subprocess, sys, tempfile, unittest
+import json, os, re, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTALAR = ROOT / "instalar.sh"
 BASH = shutil.which("bash") if sys.platform != "win32" else None
 PUERTO = "8808"   # nunca el 8765 (el del servidor de verdad)
+IMAGEN = "ghcr.io/julai1433/one-tv"
 
 
-def guion(path, texto):
+def guion(path, texto, inicio="#!/bin/sh\n"):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("#!/bin/sh\n" + texto + "\n")
+    path.write_text(inicio + texto + "\n")
     path.chmod(0o755)
     return path
 
 
-# Un «docker» falso: anota cada llamada en $LOG y contesta según DOCKER_APAGADO, DOCKER_HAY (ya hay un «one-tv»),
-# DOCKER_ETIQUETA (la etiqueta one-tv.instalador de ese) y DOCKER_ENV (sus variables, con \n).
+# Un «docker» falso (en Python): anota cada llamada en $LOG y guarda sus contenedores en $DOCKER_ESTADO (JSON:
+# nombre → imagen, etiquetas, env, montajes, puertos, red, prendido). Si todavía no hay estado y está DOCKER_HAY, empieza
+# con un «one-tv» de la imagen de One TV, con la etiqueta one-tv.instalador DOCKER_ETIQUETA y las variables DOCKER_ENV
+# (con \n). DOCKER_APAGADO: no responde; DOCKER_SOLO_ADMIN: solo responde con sudo (CON_SUDO); DOCKER_NO_ARRANCA: el
+# contenedor nuevo se crea pero se detiene enseguida.
 DOCKER_FALSO = r'''
-echo "$*" >> "$LOG"
-case "$1" in
-  info) [ -n "$DOCKER_APAGADO" ] && exit 1; exit 0 ;;
-  container)
-    case "$*" in *State.Running*) echo true; exit 0 ;; esac
-    [ -n "$DOCKER_HAY" ] || exit 1
-    case "$*" in
-      *one-tv.instalador*) echo "$DOCKER_ETIQUETA" ;;
-      *Config.Env*) printf '%b\n' "$DOCKER_ENV" ;;
-    esac
-    exit 0 ;;
-  *) exit 0 ;;
-esac
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["LOG"], "a") as f:
+    f.write(" ".join(args) + "\n")
+if os.environ.get("DOCKER_APAGADO") or (os.environ.get("DOCKER_SOLO_ADMIN") and not os.environ.get("CON_SUDO")
+                                        and os.getuid() != 0):
+    sys.exit(1)
+RUTA = os.environ["DOCKER_ESTADO"]
+
+def cargar():
+    if os.path.exists(RUTA):
+        with open(RUTA) as f:
+            return json.load(f)
+    estado = {}
+    if os.environ.get("DOCKER_HAY"):
+        estado["one-tv"] = {"imagen": "ghcr.io/julai1433/one-tv:latest",
+                            "etiquetas": {"one-tv.instalador": os.environ.get("DOCKER_ETIQUETA", "")},
+                            "env": os.environ.get("DOCKER_ENV", "").replace("\\n", "\n").split("\n"),
+                            "montajes": [], "puertos": {}, "red": "host", "prendido": True}
+    return estado
+
+def guardar(estado):
+    with open(RUTA, "w") as f:
+        json.dump(estado, f)
+
+def mostrar(nombre, c, formato):
+    e = c["etiquetas"]
+    if "Config.Image" in formato:
+        return "/%s|%s|%s|%s\n" % (nombre, c["imagen"], e.get("one-tv.instalador", ""),
+                                   e.get("org.opencontainers.image.source", ""))
+    if "State.Running" in formato:
+        return ("true" if c["prendido"] else "false") + "\n"
+    if "Config.Env" in formato:
+        return "".join(v + "\n" for v in c["env"]) + "\n"
+    if ".Mounts" in formato:
+        return "".join("%s|%s|%s|%s\n" % (m["tipo"], m["nombre"], m["origen"], m["destino"])
+                       for m in c["montajes"]) + "\n"
+    if "PortBindings" in formato:
+        return "".join("%s|%s \n" % (p, " ".join(h)) for p, h in c["puertos"].items()) + "\n"
+    if "NetworkMode" in formato:
+        return c["red"] + "\n"
+    if "com.docker.compose.project" in formato:
+        return e.get("com.docker.compose.project", "") + "\n"
+    return "{}\n"
+
+def crear(args, estado):
+    c = {"imagen": "", "etiquetas": {}, "env": [], "montajes": [], "puertos": {}, "red": "bridge",
+         "prendido": not os.environ.get("DOCKER_NO_ARRANCA")}
+    nombre, i = None, 0
+    while i < len(args):
+        a = args[i]
+        if a in ("--name", "--label", "--network", "--restart", "-e", "-v", "--device", "-p"):
+            v = args[i + 1]
+            i += 2
+            if a == "--name":
+                nombre = v
+            elif a == "--label":
+                k, _, x = v.partition("=")
+                c["etiquetas"][k] = x
+            elif a == "--network":
+                c["red"] = v
+            elif a == "-e":
+                c["env"].append(v)
+            elif a == "-v":
+                origen, destino = v.split(":")[:2]
+                if origen.startswith("/"):
+                    c["montajes"].append({"tipo": "bind", "nombre": "", "origen": origen, "destino": destino})
+                else:
+                    c["montajes"].append({"tipo": "volume", "nombre": origen, "destino": destino,
+                                          "origen": "/var/lib/docker/volumes/%s/_data" % origen})
+            elif a == "-p":
+                afuera, _, adentro = v.rpartition(":")
+                c["puertos"].setdefault(adentro + "/tcp", []).append(afuera)
+            continue
+        if a.startswith("-"):
+            i += 1
+            continue
+        c["imagen"] = a
+        break
+    if nombre in estado:
+        sys.exit("docker: Error response from daemon: Conflict. The container name is already in use.")
+    estado[nombre] = c
+
+estado = cargar()
+orden = args[1:] if args[0] == "container" else args
+accion, resto = orden[0], orden[1:]
+nombres = [a for a in resto if not a.startswith("-")]
+falta = [n for n in nombres if n not in estado]
+if accion in ("info", "pull", "load", "image"):
+    sys.exit(0)
+if accion == "ps":
+    print("\n".join(estado))
+elif accion == "inspect":
+    formato = resto[resto.index("-f") + 1] if "-f" in resto else ""
+    nombres = [n for n in resto if n != formato and not n.startswith("-")]
+    sys.stdout.write("".join(mostrar(n, estado[n], formato) for n in nombres if n in estado))
+    if any(n not in estado for n in nombres):
+        sys.exit("Error: No such container")
+elif accion == "run":
+    if os.environ.get("DOCKER_RUN_FALLA"):
+        sys.exit("docker: Error response from daemon: algo falló.")
+    crear(resto, estado)
+elif accion == "logs":
+    print("Error: algo salió mal al arrancar")
+elif accion in ("stop", "start", "rm", "rename"):
+    if falta and accion != "rename":
+        sys.exit("Error: No such container")
+    if accion == "stop" or accion == "start":
+        estado[nombres[0]]["prendido"] = accion == "start"
+    elif accion == "rm":
+        if estado[nombres[0]]["prendido"] and "-f" not in resto:
+            sys.exit("Error: cannot remove a running container")
+        del estado[nombres[0]]
+    elif accion == "rename":
+        viejo, nuevo = nombres
+        if viejo not in estado or nuevo in estado:
+            sys.exit("Error: no se puede cambiar el nombre")
+        estado[nuevo] = estado.pop(viejo)
+guardar(estado)
 '''
 
-# «sudo» falso: sin contraseña guardada (-n falla), -v la «pide» y lo demás corre tal cual.
+# «sudo» falso: sin contraseña guardada (-n falla), -v la «pide» y lo demás corre tal cual (como administrador).
 SUDO_FALSO = r'''
 echo "sudo $*" >> "$LOG"
 case "$1" in
   -n) exit 1 ;;
   -v) exit 0 ;;
 esac
+export CON_SUDO=1
 exec "$@"
 '''
 
@@ -71,6 +184,16 @@ esac
 '''
 
 
+def contenedor(imagen=IMAGEN + ":latest", etiquetas=None, env=(), montajes=(), puertos=None, red="bridge",
+               prendido=True):
+    """Un contenedor para el docker falso. montajes: («origen», «destino»); origen sin «/» es un volumen con nombre."""
+    return {"imagen": imagen, "etiquetas": dict(etiquetas or {}), "env": ["PATH=/usr/bin", *env],
+            "montajes": [{"tipo": "bind", "nombre": "", "origen": o, "destino": d} if o.startswith("/") else
+                         {"tipo": "volume", "nombre": o, "origen": f"/var/lib/docker/volumes/{o}/_data", "destino": d}
+                         for o, d in montajes],
+            "puertos": dict(puertos or {}), "red": red, "prendido": prendido}
+
+
 @unittest.skipUnless(BASH, "instalar.sh necesita bash")
 class InstaladorNas(unittest.TestCase):
     def setUp(self):
@@ -91,8 +214,21 @@ class InstaladorNas(unittest.TestCase):
         for programa in ("service", "systemctl"):   # (nunca el de verdad: arrancaría el Docker de esta computadora)
             guion(self.bin / programa, f'echo "{programa} $*" >> "$LOG"')
 
-    def con_docker(self):
-        guion(self.bin / "docker", DOCKER_FALSO)
+    def con_docker(self, contenedores=None):
+        """El docker falso en bin/ (y, si se dan, los contenedores que ya tiene)."""
+        shutil.copy(self.docker_falso(), self.bin / "docker")
+        if contenedores is not None:
+            self.estado_docker().write_text(json.dumps({n: contenedor(**c) for n, c in contenedores.items()}))
+
+    def docker_falso(self):
+        return guion(self.dir / "docker-falso", DOCKER_FALSO, inicio=f"#!{sys.executable}\n")
+
+    def estado_docker(self):
+        return self.dir / "docker.json"
+
+    def contenedores(self):
+        """Los contenedores que quedaron en el docker falso."""
+        return json.loads(self.estado_docker().read_text()) if self.estado_docker().exists() else {}
 
     def nas(self, *rutas, archivos=()):
         for r in rutas:
@@ -107,9 +243,11 @@ class InstaladorNas(unittest.TestCase):
         entorno = {"PATH": f"{self.bin}:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(self.dir / "casa"),
                    "LANG": "C.UTF-8", "ONE_TV_RAIZ": str(self.raiz), "LOG": str(self.log), "TMPDIR": str(self.dir),
                    # que no encuentre el Docker de verdad de la máquina (en GitHub, Ubuntu lo trae): solo el de la prueba
-                   "ONE_TV_SOLO_DOCKER_EN": str(self.dir),
+                   "ONE_TV_SOLO_DOCKER_EN": str(self.dir), "DOCKER_ESTADO": str(self.estado_docker()),
                    **env}
-        r = subprocess.run([BASH, "-c", script], capture_output=True, text=True, env=entorno, timeout=60)
+        # En una sesión aparte, sin terminal: así nunca se queda esperando una respuesta en la terminal de quien prueba.
+        r = subprocess.run([BASH, "-c", script], capture_output=True, text=True, env=entorno, timeout=60,
+                           start_new_session=True)
         return r.returncode, r.stdout + r.stderr
 
     def instalar(self, *args, **env):
@@ -237,11 +375,8 @@ class InstaladorNas(unittest.TestCase):
 
     def test_con_docker_solo_como_administrador_pide_la_contrasena_y_dice_para_que(self):
         self.con_docker()
-        guion(self.bin / "docker", 'case "$1" in info) [ "$(id -u)" = 0 ] || [ -n "$CON_SUDO" ] || exit 1 ;; esac\n'
-              + DOCKER_FALSO)
-        guion(self.bin / "sudo", 'case "$1" in -n) exit 1 ;; -v) exit 0 ;; esac\nCON_SUDO=1 exec "$@"')
         self.nas("volume1/docker", archivos=["etc/synoinfo.conf"])
-        code, out = self.instalar(ESTADO='{"bienvenida_pendiente": true}', ONE_TV_PUERTO=PUERTO)
+        code, out = self.instalar(ESTADO='{"bienvenida_pendiente": true}', ONE_TV_PUERTO=PUERTO, DOCKER_SOLO_ADMIN="1")
         self.assertEqual(code, 0, out)
         self.assertIn("Te voy a pedir tu contraseña (la de tu usuario de tu Synology) una sola vez, para que Docker "
                       "pueda crear el contenedor de One TV", out)
@@ -262,14 +397,159 @@ class InstaladorNas(unittest.TestCase):
         self.assertIn("rm -f one-tv", self.llamadas())
         self.assertEqual((self.raiz / "mnt/user/appdata/one-tv/config.json").read_text(), '{"bienvenida_hecha": true}\n')
 
-    def test_un_contenedor_one_tv_ajeno_no_se_toca(self):
+    # ---------- un One TV de Docker hecho a mano ----------
+
+    def synology_con_un_one_tv_a_mano(self, **cambios):
+        """Un Synology con un One TV hecho a mano en Portainer: otro nombre, de una versión vieja de la imagen, la
+        biblioteca en /biblioteca, sus datos en un volumen con nombre, publicado en el 8080, con su clave del Roku y un
+        PUID que no podía leer la biblioteca. Al lado, otro contenedor que no es One TV."""
+        self.nas("volume1/docker", "volume1/video", archivos=["etc/synoinfo.conf"])
+        viejo = dict(imagen=IMAGEN + ":1.0.40", etiquetas={"com.docker.compose.project": "onetv"},
+                     env=["ROKU_PASSWORD=clave del roku", "PUID=1026", "PGID=100", "ONE_TV_COMPARTIDAS=/otra"],
+                     montajes=[("onetv_datos", "/datos"), ("/volume1/video", "/biblioteca")],
+                     puertos={"8765/tcp": ["8080"]})
+        viejo.update(cambios)
+        self.con_docker({"onetv-portainer": viejo, "postgres": dict(imagen="postgres:17")})
+        return self.contenedores()["onetv-portainer"]
+
+    def test_uno_a_mano_se_cambia_conservando_todo(self):
+        self.synology_con_un_one_tv_a_mano()
+        code, out = self.instalar(ESTADO='{"bienvenida_pendiente": false}', ONE_TV_RESPUESTA="s")
+        self.assertEqual(code, 0, out)
+        self.assertIn("· Encontré One TV instalado a mano en Docker (el contenedor «onetv-portainer»).\n"
+                      "¿Lo cambio por uno que se pone al día solo? Tus datos y tus carpetas se quedan. [S/n]", out)
+        run = self.corrida()
+        self.assertIsNotNone(run, self.llamadas())
+        texto = " ".join(run)
+        for parte in ("--name one-tv", "--label one-tv.instalador=1", "--network host", "-e PUID=0", "-e PGID=0",
+                      "-v onetv_datos:/datos",                     # sus datos: el mismo volumen
+                      "-v /volume1/video:/biblioteca:ro",           # su biblioteca, donde la busca su configuración
+                      "-v /volume1:/volume1:ro", "-e ONE_TV_COMPARTIDAS=/volume1",
+                      "-e PUERTO=8080"):                            # donde la TV lo encuentra
+            self.assertIn(parte, texto)
+        self.assertIn("ROKU_PASSWORD=clave", texto)
+        self.assertNotIn("PUID=1026", texto)
+        self.assertNotIn("/otra", texto)
+        self.assertNotIn("-p ", texto)
+        # Primero la imagen nueva; luego se detiene y aparta el viejo; el nuevo; y solo cuando responde, se borra el viejo.
+        llamadas = [l for l in self.llamadas().splitlines() if l.split(" ")[0] in ("pull", "stop", "rename", "run", "rm")]
+        self.assertEqual([l.split(" ")[0] for l in llamadas], ["pull", "stop", "rename", "run", "rm"], llamadas)
+        self.assertEqual(llamadas[2], "rename onetv-portainer one-tv-anterior")
+        self.assertEqual(llamadas[4], "rm one-tv-anterior")
+        quedan = self.contenedores()
+        self.assertEqual(sorted(quedan), ["one-tv", "postgres"])   # el otro contenedor, ni se mira
+        self.assertTrue(quedan["one-tv"]["prendido"])
+        self.assertIn("http://192.168.1.20:8080\n", out)
+        self.assertIn("Cambié tu One TV de antes («onetv-portainer») por este", out)
+        self.assertIn("(/volume1, /biblioteca) solo para leerlas", out)
+        self.assertIn("Sus datos siguen donde estaban (el volumen «onetv_datos» de Docker)", out)
+        self.assertIn("El stack «onetv» (de Portainer o de la app de Docker) ya no hace falta; si lo borras, no borres "
+                      "sus datos.", out)
+        self.assertFalse((self.raiz / "volume1/docker/one-tv").exists())   # no se inventó otra carpeta de datos
+        # Y al volver a correrlo (ya es «nuestro»), lo pone al día sin preguntar y sin perder /biblioteca ni el volumen.
+        self.log.write_text("")
+        code, out = self.instalar(ESTADO='{"bienvenida_pendiente": false}')
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("instalado a mano", out)
+        texto = " ".join(self.corrida())
+        for parte in ("-v onetv_datos:/datos", "-v /volume1/video:/biblioteca:ro", "-e PUERTO=8080",
+                      "ROKU_PASSWORD=clave"):
+            self.assertIn(parte, texto)
+        self.assertEqual(texto.count("/volume1:/volume1:ro"), 1)
+
+    def test_uno_a_mano_que_se_llama_one_tv(self):
+        self.nas("volume1/docker", archivos=["etc/synoinfo.conf"])
+        self.con_docker({"one-tv": dict(imagen=IMAGEN, red="host", env=["NOMBRE=Sala"],
+                                        montajes=[("/volume1/docker/onetv", "/datos"), ("/volume1", "/volume1")])})
+        code, out = self.instalar(ESTADO='{"bienvenida_pendiente": false}', ONE_TV_RESPUESTA="", ONE_TV_PUERTO=PUERTO)
+        self.assertEqual(code, 0, out)   # (Enter, sin escribir nada: es que sí)
+        self.assertIn("(el contenedor «one-tv»)", out)
+        self.assertIn("rename one-tv one-tv-anterior", self.llamadas())
+        self.assertIn("rm one-tv-anterior", self.llamadas())
+        texto = " ".join(self.corrida())
+        self.assertIn("-v /volume1/docker/onetv:/datos", texto)
+        self.assertIn("NOMBRE=Sala", texto)
+        self.assertEqual(texto.count("/volume1:/volume1:ro"), 1)   # su /volume1 ya es una de las compartidas
+        self.assertEqual(list(self.contenedores()), ["one-tv"])
+        self.assertEqual(self.contenedores()["one-tv"]["etiquetas"], {"one-tv.instalador": "1"})
+        self.assertIn("Sus datos quedan en /volume1/docker/onetv", out)
+        self.assertNotIn("stack", out)   # no venía de un stack
+
+    def test_un_one_tv_llamado_one_tv_sin_terminal_no_se_toca(self):
         self.con_docker()
         self.nas("volume1/docker", archivos=["etc/synoinfo.conf"])
         code, out = self.instalar(ESTADO="{}", DOCKER_HAY="1", DOCKER_ETIQUETA="")
         self.assertNotEqual(code, 0)
-        self.assertIn("no creó este instalador", out)
-        self.assertNotIn("rm -f", self.llamadas())
-        self.assertIsNone(self.corrida())
+        self.assertIn("Encontré One TV instalado a mano en Docker (el contenedor «one-tv»)", out)
+        self.assertIn("No te puedo preguntar si lo cambio (no hay una terminal), así que no lo toco.", out)
+        self.assertIn("corre este mismo comando en una terminal y contesta «s»", out)
+        for accion in ("pull", "stop", "rename", "rm", "run"):
+            self.assertNotIn(f"\n{accion} ", "\n" + self.llamadas())
+
+    def test_uno_a_mano_sin_terminal_o_con_un_no_no_se_toca(self):
+        antes = self.synology_con_un_one_tv_a_mano()
+        for respuesta, codigo, frase in ((None, 1, "no hay una terminal"), ("n", 0, "No lo toco"),
+                                         ("no", 0, "No lo toco")):
+            self.log.write_text("")
+            env = {"ONE_TV_RESPUESTA": respuesta} if respuesta is not None else {}
+            code, out = self.instalar(ESTADO="{}", **env)
+            self.assertEqual(code, codigo, out)
+            self.assertIn(frase, out)
+            self.assertEqual(self.contenedores()["onetv-portainer"], antes)
+            self.assertNotIn("one-tv", self.contenedores())
+            for accion in ("pull", "stop", "rename", "rm", "run"):
+                self.assertNotIn(f"\n{accion} ", "\n" + self.llamadas())
+
+    def test_si_el_nuevo_no_arranca_el_de_antes_vuelve_tal_cual(self):
+        for falla, frase in (("DOCKER_NO_ARRANCA", "One TV no arrancó"),
+                             ("DOCKER_RUN_FALLA", "Docker no pudo crear el contenedor de One TV")):
+            shutil.rmtree(self.raiz)
+            self.raiz.mkdir()
+            self.log.write_text("")
+            antes = self.synology_con_un_one_tv_a_mano()
+            code, out = self.instalar(ONE_TV_RESPUESTA="s", **{falla: "1"})   # (sin ESTADO: el nuevo no responde)
+            self.assertNotEqual(code, 0, out)
+            self.assertIn(frase, out)
+            self.assertIn("Dejé tu One TV de antes («onetv-portainer») como estaba: no cambió nada.", out)
+            self.assertEqual(self.contenedores()["onetv-portainer"], antes)   # su nombre, prendido, lo mismo
+            self.assertEqual(sorted(self.contenedores()), ["onetv-portainer", "postgres"])
+            self.assertIn("rename one-tv-anterior onetv-portainer", self.llamadas())
+            self.assertIn("start onetv-portainer", self.llamadas())
+        # Si estaba apagado, vuelve apagado.
+        shutil.rmtree(self.raiz)
+        self.raiz.mkdir()
+        self.log.write_text("")
+        antes = self.synology_con_un_one_tv_a_mano(prendido=False)
+        code, out = self.instalar(ONE_TV_RESPUESTA="s", DOCKER_NO_ARRANCA="1")
+        self.assertNotEqual(code, 0, out)
+        self.assertEqual(self.contenedores()["onetv-portainer"], antes)
+        self.assertNotIn("\nstart ", "\n" + self.llamadas())
+
+    def test_con_dos_one_tv_no_se_toca_nada(self):
+        self.nas("volume1/docker", archivos=["etc/synoinfo.conf"])
+        self.con_docker({"one-tv": dict(etiquetas={"one-tv.instalador": "1"}, red="host"),
+                         # (una imagen sin nombre, pero con la etiqueta de la imagen de One TV)
+                         "tele-vieja": dict(imagen="sha256:0123abcd", prendido=False, etiquetas={
+                             "org.opencontainers.image.source": "https://github.com/julai1433/one-tv"}),
+                         "postgres": dict(imagen="postgres:17")})
+        antes = self.contenedores()
+        code, out = self.instalar(ESTADO="{}", ONE_TV_RESPUESTA="s")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("Encontré más de un One TV en Docker («one-tv», «tele-vieja»). Para no romper nada, no toco "
+                      "ninguno.", out)
+        self.assertIn("Deja solo el que usas", out)
+        self.assertEqual(self.contenedores(), antes)
+        for accion in ("pull", "stop", "rename", "rm", "run"):
+            self.assertNotIn(f"\n{accion} ", "\n" + self.llamadas())
+
+    def test_reconoce_la_imagen_de_one_tv_con_cualquier_version(self):
+        si = ["ghcr.io/julai1433/one-tv", "ghcr.io/julai1433/one-tv:latest", "ghcr.io/julai1433/one-tv:1.0.42",
+              "ghcr.io/julai1433/one-tv@sha256:0123", "one-tv-prueba:local"]
+        no = ["ghcr.io/julai1433/one-tv-otra:latest", "postgres:17", "sha256:0123", "julai1433/one-tv:latest", ""]
+        codigo = "; ".join(f'es_imagen_one_tv "{i}" && echo "si {i}" || echo "no {i}"' for i in si + no)
+        code, out = self.bash(codigo, ONE_TV_IMAGEN="one-tv-prueba:local")
+        self.assertEqual([l.strip() for l in out.strip().splitlines()],
+                         [f"si {i}".strip() for i in si] + [f"no {i}".strip() for i in no])
 
     # ---------- sin Docker ----------
 
@@ -296,8 +576,7 @@ class InstaladorNas(unittest.TestCase):
 
     def test_linux_comun_instala_docker_con_el_instalador_oficial(self):
         # El «instalador oficial» de prueba deja un docker falso donde lo buscaría el de verdad.
-        oficial = guion(self.dir / "get-docker.sh", f'cat > "{self.bin}/docker" <<"FIN"\n#!/bin/sh{DOCKER_FALSO}FIN\n'
-                        f'chmod +x "{self.bin}/docker"')
+        oficial = guion(self.dir / "get-docker.sh", f'cp "{self.docker_falso()}" "{self.bin}/docker"')
         self.nas("home/ana/Videos")
         code, out = self.instalar("--docker", ESTADO='{"bienvenida_pendiente": true}', ONE_TV_PUERTO=PUERTO,
                                   ONE_TV_DOCKER_OFICIAL=f"file://{oficial}")
@@ -310,6 +589,43 @@ class InstaladorNas(unittest.TestCase):
         self.assertIn(f":{PUERTO}/bienvenida", out)
         self.assertIn("sudo sh", self.llamadas())   # el instalador de Docker corre como administrador
         self.assertIn("/home:/home:ro", self.corrida())
+
+    def test_otro_linux_sin_pedir_docker_con_un_one_tv_en_docker_lo_pone_al_dia_ahi(self):
+        self.nas("home/ana/Videos", archivos=["etc/os-release"])
+        self.con_docker({"one-tv": dict(etiquetas={"one-tv.instalador": "1"}, red="host",
+                                        montajes=[("/home/ana/docker/one-tv", "/datos"), ("/home", "/home")])})
+        code, out = self.instalar(ESTADO='{"bienvenida_pendiente": false}', ONE_TV_PUERTO=PUERTO,
+                                  ONE_TV_FUENTE="/no/existe.tar.gz", ONE_TV_DIR=str(self.dir / "one-tv"))
+        self.assertEqual(code, 0, out)
+        self.assertIn("One TV ya está en Docker en este equipo: lo pongo al día ahí, en Docker.", out)
+        self.assertNotIn("en esta computadora", out)
+        self.assertNotIn("No pude bajar One TV", out)   # no se fue por el camino directo
+        self.assertFalse((self.dir / "one-tv").exists())
+        texto = " ".join(self.corrida())
+        self.assertIn("-v /home/ana/docker/one-tv:/datos", texto)
+        self.assertIn("rm -f one-tv", self.llamadas())
+
+    def test_otro_linux_sin_pedir_docker_con_docker_solo_de_administrador(self):
+        # Docker pide sudo y hay un One TV de Docker corriendo (se ve en la lista de procesos): pide la contraseña una
+        # vez, diciendo para qué, y lo pone al día ahí.
+        self.nas("home/ana/Videos", archivos=["etc/os-release"])
+        self.con_docker({"one-tv": dict(etiquetas={"one-tv.instalador": "1"}, red="host")})
+        guion(self.bin / "ps", 'echo "/usr/bin/tini -- /app/entrypoint.sh"; echo "python3 /app/mac/cine.py servir"')
+        code, out = self.instalar(ESTADO='{"bienvenida_pendiente": false}', ONE_TV_PUERTO=PUERTO,
+                                  DOCKER_SOLO_ADMIN="1", ONE_TV_FUENTE="/no/existe.tar.gz",
+                                  ONE_TV_DIR=str(self.dir / "one-tv"))
+        self.assertEqual(code, 0, out)
+        self.assertIn("Te voy a pedir tu contraseña (la de tu usuario de este equipo) una sola vez, para poner al día "
+                      "One TV, que ya está en Docker.", out)
+        self.assertIn("lo pongo al día ahí, en Docker", out)
+        self.assertIsNotNone(self.corrida())
+        # Sin un One TV corriendo, no pide la contraseña: sigue por el camino directo.
+        guion(self.bin / "ps", 'echo "/usr/sbin/sshd"')
+        code, out = self.instalar(DOCKER_SOLO_ADMIN="1", ONE_TV_FUENTE="/no/existe.tar.gz",
+                                  ONE_TV_DIR=str(self.dir / "one-tv"))
+        self.assertNotEqual(code, 0)
+        self.assertNotIn("contraseña", out)
+        self.assertIn("No pude bajar One TV", out)
 
     def test_otro_linux_sin_pedir_docker_sigue_como_siempre(self):
         self.con_docker()

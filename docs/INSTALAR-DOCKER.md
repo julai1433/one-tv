@@ -162,6 +162,9 @@ TV. Después, la página de todos los días es `http://IP-DEL-NAS:8765`: ponla e
 - **No veo una carpeta en el navegador**: tiene que estar dentro de lo montado (por ejemplo, en Synology, en el
   `/volume1`). Si está en otro volumen o en un disco USB, agrégalo como en el paso 2.
 - **«Bind mount failed» en Synology**: falta la carpeta `docker/one-tv` (paso 2, punto 1).
+- **Lo instalaste a mano** (con Portainer, un proyecto o con otro nombre) y no lee tus carpetas, o quieres que se ponga
+  al día solo: vuelve a correr el comando del paso 2. Te ofrece cambiarlo por el del instalador, sin perder nada (tus
+  datos, tus carpetas, tu clave del Roku y el puerto se quedan).
 
 ## Qué cambia respecto a la Mac, Windows y Ubuntu
 
