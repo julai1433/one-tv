@@ -188,6 +188,11 @@ class Estado(
     var avisoError by mutableStateOf(false)
     private var avisoJob: Job? = null
 
+    /** El código para cambiar la configuración desde otro aparato ("": no se ve). Encima de todo; se quita solo o con
+     *  OK o Atrás. */
+    var codigo by mutableStateOf("")
+    private var codigoJob: Job? = null
+
     /** Lo que se pidió ver al abrir la app («contentId», como en el Roku): se reproduce en cuanto llega el catálogo. */
     var pendiente: String? = null
 
@@ -466,6 +471,20 @@ class Estado(
         avisoError = false
     }
 
+    fun mostrarCodigo(c: String) {
+        codigo = c
+        codigoJob?.cancel()
+        codigoJob = scope.launch {
+            delay(90_000)   // sigue sirviendo unos minutos más en la web
+            codigo = ""
+        }
+    }
+
+    fun ocultarCodigo() {
+        codigoJob?.cancel()
+        codigo = ""
+    }
+
     private fun fijarAviso(text: String) {
         val antes = avisoFijo
         avisoFijo = text
@@ -475,6 +494,10 @@ class Estado(
     // ---------- teclas ----------
 
     fun tecla(t: Tecla): Boolean {
+        if (codigo.isNotEmpty()) {   // el código de la TV: OK o Atrás lo quitan; lo demás no hace nada mientras se ve
+            if (t == Tecla.OK || t == Tecla.ATRAS) ocultarCodigo()
+            return true
+        }
         if (conexion != Conexion.LISTA) return teclaConexion(t)
         if (ayuda) {
             if (t == Tecla.ATRAS) ayuda = false
@@ -515,7 +538,7 @@ class Estado(
     var conexionBoton by mutableStateOf(0)
 
     /** ¿Aquí OK sostenido abre opciones? (tarjetas y la ficha; en el reproductor, las listas y el menú, OK es inmediato). */
-    fun okSostenidoSirve() = conexion == Conexion.LISTA && !reproductor.visible && lista == null && !ayuda && !menuAbierto && listaNueva == null &&
+    fun okSostenidoSirve() = conexion == Conexion.LISTA && codigo.isEmpty() && !reproductor.visible && lista == null && !ayuda && !menuAbierto && listaNueva == null &&
         !sinServidor && idioma == null && !qr
 
     private fun teclaConexion(t: Tecla): Boolean {

@@ -75,8 +75,13 @@ subs_auto.AutoSubtitles.watch = lambda self: None   # ni los subtítulos automá
 
 
 class RokuFalso:
-    """Un Roku inventado (192.0.2.10): «instala» la app en 2 s si la contraseña es la del asistente."""
+    """Un Roku inventado (192.0.2.10): «instala» la app en 2 s si la contraseña es la del asistente y anota los códigos
+    que se le mandan para mostrar."""
     instalados = []
+    codigos = []
+
+    def show_code(self, code, server_url=""):
+        RokuFalso.codigos.append(code)
 
     def __init__(self, ip, password=""):
         self.ip, self.dev_password = ip, password
@@ -396,13 +401,47 @@ def correr(width, port):
         js("document.querySelector('#asistente').scrollIntoView({block: 'center'}); true")
         foto("5-ajustes", completa=False)
 
-        # ---- otro aparato, ya terminada: no se puede ----
+        # ---- otro aparato, ya terminada: con el código que aparece en la TV ----
         real = asistente.is_local
         asistente.is_local = lambda *a: False
         try:
             cdp.call("Page.navigate", {"url": url + "/bienvenida"}, s)
-            check(esperar("document.querySelector('main').innerText.includes('solo se abre en la computadora')"), f"[{w}] otro aparato: «Ya está configurado»")
+            check(esperar("!!document.querySelector('main button.pri') && document.querySelector('main').innerText.includes('código')"),
+                  f"[{w}] otro aparato: pide el código de la TV")
+            check(not js("!!document.querySelector('#pasos .paso')"), f"[{w}] otro aparato: sin los pasos de arriba")
             foto("6-otro-aparato")
+            # Sin ninguna TV conectada: el código queda en el registro y la página lo dice.
+            roku_antes = app.roku
+            apagar.set()
+            app.teles.adios("androidtv-prueba")
+            app.roku = None
+            clic("main button.pri")
+            check(esperar("document.querySelector('main').innerText.includes('No encontré tu TV encendida')"),
+                  f"[{w}] código: sin TV, «está en el registro»")
+            check(js("!!document.querySelector('#codigo')"), f"[{w}] código: el campo para escribirlo")
+            check("null" not in texto() and "undefined" not in texto(), f"[{w}] código: sin «null» suelto")
+            foto("6b-sin-tele")
+            # Con el Roku: «Te mostramos un código en tu TV».
+            app.roku = roku_antes
+            app.asistente.codigo.asked.clear()   # (sin esperar los 30 s entre un código y otro)
+            antes = len(RokuFalso.codigos)
+            js("[...document.querySelectorAll('main button.link')].find(b => b.innerText.includes('Pedir otro')).click()")
+            check(esperar("document.querySelector('main').innerText.includes('Te mostramos un código en tu TV. Escríbelo aquí.')"),
+                  f"[{w}] código: «Te mostramos un código en tu TV»")
+            check(len(RokuFalso.codigos) == antes + 1, f"[{w}] código: llegó al Roku")
+            codigo = RokuFalso.codigos[-1]
+            check(js("document.activeElement && document.activeElement.id === 'codigo'"), f"[{w}] código: el campo listo para escribir")
+            foto("6c-codigo")
+            otro = "000000" if codigo != "000000" else "111111"
+            js(f"document.querySelector('#codigo').value = '{otro}'; document.querySelector('form.codigo button').click(); true")
+            check(esperar("document.querySelector('main').innerText.includes('Ese no es el código. Te quedan 4 intentos.')"),
+                  f"[{w}] código: uno equivocado se dice, con los intentos que quedan")
+            foto("6d-codigo-equivocado")
+            js(f"document.querySelector('#codigo').value = '{codigo[:3]} {codigo[3:]}'; document.querySelector('form.codigo button').click(); true")
+            check(esperar("!!document.querySelector('#empezar')"), f"[{w}] código: con el bueno se abre el asistente")
+            check("onetv_asistente" not in (js("document.cookie") or ""), f"[{w}] código: la cookie no se ve desde la página")
+            check(js("fetch('/api/asistente/carpetas').then(r => r.status)") == 200, f"[{w}] código: ya puede usar el asistente")
+            foto("6e-con-codigo")
         finally:
             asistente.is_local = real
         errs = js("window.__errs") or []

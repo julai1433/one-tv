@@ -551,6 +551,7 @@ buscar_docker() {   # la ruta del programa docker (también donde lo dejan Synol
       "$RAIZ/var/packages/ContainerManager/target/usr/bin/docker" "$RAIZ/var/packages/Docker/target/usr/bin/docker" \
       "$RAIZ"/share/*/.qpkg/container-station/bin/docker; do
     if [ -n "$c" ] && [ -x "$c" ] && [ ! -d "$c" ]; then
+      case "$c" in "${ONE_TV_SOLO_DOCKER_EN:-}"*) ;; *) continue ;; esac   # en las pruebas: solo el Docker de mentira
       echo "$c"
       return 0
     fi

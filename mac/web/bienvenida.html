@@ -14,7 +14,8 @@
   El asistente del primer arranque (/bienvenida): tus videos, tu TV, extras y listo. Lo que hace en el servidor está en
   mac/asistente.py (rutas /api/asistente/…, y quién puede usarlo). La página principal («/») manda aquí mientras
   config.json diga "bienvenida_hecha": false (así lo deja el instalador); al llegar a «Listo» se guarda con
-  POST /api/bienvenida {"hecha": true}. Desde Ajustes generales de la web se vuelve a abrir.
+  POST /api/bienvenida {"hecha": true}. Desde Ajustes generales de la web se vuelve a abrir: desde otro aparato, ya
+  terminada, con un código que aparece en la TV (POST /api/asistente/codigo y /api/asistente/entrar).
   Colores y letras: los mismos tokens de DESIGN.md que mac/web/index.html (ni un color fuera del bloque :root).
 -->
 <style>
@@ -227,6 +228,13 @@
   @media (max-width: 640px) { .listo { grid-template-columns: 1fr; } .solo-ancho { display: none !important; } }
   @media (min-width: 641px) { .solo-telefono { display: none !important; } }
 
+  /* ---------- sin permiso: el código de la TV ---------- */
+  .codigo { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
+  .codigo input { flex: 1 1 160px; max-width: 240px; min-height: 56px; padding: 8px 16px; background: var(--bg);
+                  border: 1px solid var(--edge); border-radius: 2px; color: var(--text);
+                  font: 800 34px/1 var(--font-display); letter-spacing: .12em; }
+  .codigo .btn { min-height: 56px; }
+
   /* ---------- abajo: Atrás y Siguiente ---------- */
   .barra { position: fixed; left: 0; right: 0; bottom: 0; background: var(--raise-1); border-top: 1px solid var(--line);
            padding: 14px var(--pad) calc(14px + env(safe-area-inset-bottom)); display: flex; justify-content: space-between;
@@ -333,15 +341,25 @@ const plural = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
 const SIN_RED = "No hay conexión con One TV. Revisa que la computadora donde está siga prendida.";
 async function getJSON(url) {
   const r = await fetch(url, { cache: "no-store" });
-  return r.json();
+  return sinPermiso(await r.json());
 }
 async function post(url, body) {
   try {
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
-    return await r.json();
+    return sinPermiso(await r.json());
   } catch (_) {
     return { ok: false, error: SIN_RED };
   }
+}
+// Desde otro aparato, el permiso del código de la TV dura un rato: al vencer, la página vuelve a pedirlo.
+function sinPermiso(x) {
+  if (x && x.ok === false && x.pedir_codigo === true && S.est && S.est.permitido) {
+    S.est = { ok: true, permitido: false, local: false, codigo: true };
+    Object.assign(COD, { pedido: false, error: "Por seguridad, pide otro código para seguir." });
+    if (!$("velo").hidden) $("velo").hidden = true;
+    render();
+  }
+  return x;
 }
 
 // ---------- estado ----------
@@ -406,10 +424,61 @@ function render() {
   [pintarBienvenida, pintarVideos, pintarTele, pintarExtras, pintarListo][S.paso](main);
 }
 
+// ---------- sin permiso: desde otro aparato, ya terminada la bienvenida, con el código que aparece en la TV ----------
+const COD = { pedido: false, enTele: true, ocupado: false, error: "", enfocar: false };
+
 function pintarBloqueado(main) {
-  main.append(h("h1", null, "Ya está configurado"),
-    h("p", { class: "lead" }, "Por seguridad, el asistente solo se abre en la computadora donde está One TV."),
-    h("a", { class: "btn pri", href: "/" }, "Ir a One TV"));
+  if (!S.est.codigo) {   // la página no se abrió con una dirección de la casa: ni el código
+    main.append(h("h1", null, "Ya está configurado"),
+      h("p", { class: "lead" }, "Por seguridad, el asistente solo se abre en la computadora donde está One TV."),
+      h("a", { class: "btn pri", href: "/" }, "Ir a One TV"));
+    return;
+  }
+  const error = COD.error ? h("p", { class: "msg problema", role: "alert" }, COD.error) : "";
+  main.append(h("h1", null, "Cambiar la configuración"));
+  if (!COD.pedido) {
+    main.append(h("p", { class: "lead" }, "Por seguridad, desde este aparato hace falta un código que te mostramos en tu TV."),
+      h("div", { class: "fila-btn" },
+        h("button", { class: "btn pri", type: "button", onclick: pedirCodigo, disabled: COD.ocupado },
+          icon("tv"), COD.ocupado ? "Un momento…" : "Mostrar el código en mi TV"),
+        h("a", { class: "link", href: "/" }, "Ir a One TV")),
+      error);
+    return;
+  }
+  const campo = h("input", { id: "codigo", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "7",
+                             "aria-label": "Código de tu TV", spellcheck: "false" });
+  main.append(
+    h("p", { class: "lead" }, COD.enTele ? "Te mostramos un código en tu TV. Escríbelo aquí."
+      : "No encontré tu TV encendida: el código está en el registro de One TV."),
+    h("form", { class: "codigo", onsubmit: entrarConCodigo }, campo,
+      h("button", { class: "btn pri", type: "submit", disabled: COD.ocupado }, COD.ocupado ? "Un momento…" : "Entrar")),
+    error,
+    h("div", { class: "fila-btn" }, h("button", { class: "link", type: "button", onclick: pedirCodigo }, "Pedir otro código")));
+  if (COD.enfocar) { COD.enfocar = false; campo.focus(); }
+}
+async function pedirCodigo() {
+  Object.assign(COD, { ocupado: true, error: "" });
+  render();
+  const r = await post("/api/asistente/codigo", {});
+  COD.ocupado = false;
+  if (r.ok) Object.assign(COD, { pedido: true, enTele: !!r.en_tele, enfocar: true });
+  else COD.error = r.error || SIN_RED;
+  render();
+}
+async function entrarConCodigo(ev) {
+  ev.preventDefault();
+  const codigo = $("codigo").value;
+  Object.assign(COD, { ocupado: true, error: "" });
+  const r = await post("/api/asistente/entrar", { codigo });
+  COD.ocupado = false;
+  if (!r.ok) {
+    Object.assign(COD, { error: r.error || SIN_RED, enfocar: true });
+    render();
+    return;
+  }
+  Object.assign(COD, { pedido: false, error: "" });
+  await cargarEstado();
+  render();
 }
 
 // ---------- 0. Bienvenida ----------

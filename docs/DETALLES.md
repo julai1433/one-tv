@@ -354,9 +354,13 @@ vivo» (en Windows también Edge).
   (`datos/clave_enlaces`): solo abre lo que él mismo puso en una lista, y solo de internet.
 - **El asistente** (`/bienvenida`, `mac/asistente.py`) cambia la configuración y deja ver nombres de carpetas. Desde
   esta misma computadora se puede usar siempre; desde otro aparato de la casa, **solo mientras la bienvenida no se ha
-  terminado** (el caso de un NAS o una computadora sin pantalla, que se configuran desde otra). Volver a abrirlo para
-  todos (`POST /api/bienvenida {"hecha": false}`), permitir la entrada en Windows y activar «fuera de casa», solo desde
-  esta computadora. Además, la página tiene que haberse abierto con una dirección de la casa (una IP, `localhost`, un
+  terminado** (el caso de un NAS o una computadora sin pantalla, que se configuran desde otra). Después, desde otro
+  aparato hace falta **un código de 6 cifras que aparece en la TV** (en el Roku, que abre One TV si hace falta, y en
+  las TV con Android con One TV abierta; siempre queda también en el registro del servidor): solo lo ve quien está
+  en la casa frente a la TV. Vale 10 minutos, 5 intentos y una sola vez; uno cada 30 s y 10 por hora. Escrito bien,
+  ese navegador recibe una cookie (`HttpOnly`, `SameSite=Strict`, un valor aleatorio que el servidor recuerda en
+  memoria) que deja usar el asistente una hora. Volver a abrirlo para todos (`POST /api/bienvenida {"hecha": false}`),
+  permitir la entrada en Windows y activar «fuera de casa», solo desde esta computadora, con código o sin él. Además, la página tiene que haberse abierto con una dirección de la casa (una IP, `localhost`, un
   nombre sin puntos o `.local`): un nombre de internet podría ser una página ajena que apunta aquí («DNS rebinding»).
   «Esta computadora» es quien llega desde `127.0.0.1` o desde la propia IP del servidor; Tailscale (que entrega todo
   desde `127.0.0.1` con un nombre `.ts.net`) cuenta como otro aparato.

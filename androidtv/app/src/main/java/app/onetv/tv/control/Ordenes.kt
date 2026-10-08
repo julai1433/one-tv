@@ -42,6 +42,9 @@ sealed interface Orden {
 
     /** Algo cambió en la computadora (la biblioteca, la fila): volver a leerla. */
     data object Actualiza : Orden
+
+    /** El código para cambiar la configuración de One TV desde otro aparato (lo pide el asistente de la web). */
+    data class Codigo(val codigo: String) : Orden
 }
 
 private fun JSONObject.entero(key: String): Int? =
@@ -60,8 +63,14 @@ fun leerOrden(o: JSONObject): Orden? = when (o.optString("cmd")) {
     "tracks" -> Orden.Pistas(o.entero("audio"), o.entero("sub")).takeIf { it.audio != null || it.sub != null }
     "song" -> Orden.Cancion(if ((o.entero("dir") ?: 1) < 0) -1 else 1)
     "refresh" -> Orden.Actualiza
+    "codigo" -> o.optString("codigo").takeIf { CODIGO.matches(it) }?.let { Orden.Codigo(it) }
     else -> null
 }
+
+private val CODIGO = Regex("[0-9]{6}")
+
+/** «482913» -> «482 913»: así se lee de lejos (y así lo escribe el registro de la computadora). */
+fun codigoLegible(codigo: String): String = codigo.take(3) + " " + codigo.drop(3)
 
 /** La respuesta de la consulta: {"ok": true, "ordenes": [...]}. */
 fun leerOrdenes(o: JSONObject): List<Orden> {
@@ -210,6 +219,7 @@ class Control(private val e: Estado, private val nombre: String, private val ver
             is Orden.IrA -> irA(o.segundos)
             is Orden.Pistas -> pistas(o)
             is Orden.Cancion -> if (r.visible && r.req?.music == true) e.pasoMusica(o.dir)
+            is Orden.Codigo -> e.mostrarCodigo(o.codigo)
         }
     }
 

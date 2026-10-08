@@ -106,6 +106,8 @@ class InstaladorNas(unittest.TestCase):
                   else codigo)
         entorno = {"PATH": f"{self.bin}:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(self.dir / "casa"),
                    "LANG": "C.UTF-8", "ONE_TV_RAIZ": str(self.raiz), "LOG": str(self.log), "TMPDIR": str(self.dir),
+                   # que no encuentre el Docker de verdad de la máquina (en GitHub, Ubuntu lo trae): solo el de la prueba
+                   "ONE_TV_SOLO_DOCKER_EN": str(self.dir),
                    **env}
         r = subprocess.run([BASH, "-c", script], capture_output=True, text=True, env=entorno, timeout=60)
         return r.returncode, r.stdout + r.stderr

@@ -155,6 +155,7 @@ class Explorador(ConCarpetasFalsas):
         inicio = w.browse("")
         self.assertIn(str(self.respaldo), [c["ruta"] for c in inicio["carpetas"]])
         r = w.browse(str(self.respaldo))
+        self.assertTrue(r.get("ok"), r)   # si falla, que diga qué contestó
         self.assertEqual(sorted(c["nombre"] for c in r["carpetas"]), ["Fotos", "Videos"])   # sin ocultas ni archivos
         self.assertEqual(r["arriba"], "")   # arriba del disco: la lista de lugares
         r = w.browse(str(self.respaldo / "Videos" / "Movies"))
@@ -196,6 +197,7 @@ class Permisos(unittest.TestCase):
         self.assertFalse(asistente.may_change(True, True, "evil.example.com"))
 
 
+@unittest.skipIf(sys.platform == "win32", "los contenedores son de Linux")
 class EnUnContenedor(unittest.TestCase):
     """Docker en un NAS: el instalador monta las carpetas compartidas en su misma ruta y lo dice ONE_TV_COMPARTIDAS."""
 
@@ -335,7 +337,8 @@ class PorLaRed(ConCarpetasFalsas):
             self.assertEqual(self.pedir("POST", "/api/asistente/fuera", {})[0], 403)
             self.assertEqual(self.pedir("POST", "/api/bienvenida", {"hecha": True})[1]["pendiente"], False)
             st = self.pedir("GET", "/api/asistente/estado")[1]
-            self.assertEqual(st, {"ok": True, "permitido": False, "local": False, "pendiente": False})   # ni la clave
+            self.assertEqual(st, {"ok": True, "permitido": False, "local": False, "pendiente": False,
+                                  "codigo": True})   # ni la clave; sí pedir el código de la TV (pruebas/test_codigo_tele.py)
             for metodo, ruta, cuerpo in (("GET", "/api/asistente/carpetas", None),
                                          ("GET", "/api/asistente/explorar?ruta=" + str(self.respaldo), None),
                                          ("GET", "/api/asistente/qr.png", None),
@@ -373,6 +376,7 @@ class PorLaRed(ConCarpetasFalsas):
         for n in range(3):
             video(musica / "Artista" / f"{n}.mp3", 10)
         status, datos = self.pedir("POST", "/api/asistente/musica", {"carpeta": str(musica)})
+        self.assertTrue(datos.get("ok"), datos)   # si falla, que diga qué contestó
         self.assertEqual((datos["ok"], datos["canciones"]), (True, 3))
         self.assertEqual(self.config()["musica"], [hostos.tilde(musica)])
         self.assertEqual(app.music.roots, [musica])

@@ -6,6 +6,9 @@ configuración y deja ver los nombres de las carpetas. Por eso:
 - Desde esta misma computadora, siempre (para volver a abrirlo desde Ajustes).
 - Desde otro aparato de la casa, solo mientras la bienvenida no se ha terminado: es el caso de un NAS o de una
   computadora sin pantalla, que se configuran desde otra. Al terminar se cierra para los demás aparatos.
+- Después, desde otro aparato, con un código de 6 cifras que sale en la TV (CodigoTele): solo lo ve quien está en la
+  casa frente a ella. Si no hay ninguna TV conectada, queda en el registro del servidor. Con el código, ese navegador
+  puede usarlo una hora.
 - Siempre que la página se haya abierto con una dirección de la casa (una IP, «localhost», el nombre de la computadora
   o un nombre «.local»). Un nombre de internet puede ser una página ajena que apunta a esta computadora para usar el
   asistente desde el navegador de quien la visita (lo que se llama «DNS rebinding»): no.
@@ -25,6 +28,7 @@ tope (unos segundos en total).
 """
 
 import ipaddress
+import math
 import os
 import re
 import secrets
@@ -41,8 +45,8 @@ from music import AUDIO_EXTS
 # ---------------------------------------------------------------- quién puede usarlo
 
 HOME_SUFFIXES = (".local", ".lan", ".home", ".internal", ".home.arpa")
-NOT_ALLOWED = ("Por seguridad, desde otro aparato esto solo se puede cambiar mientras no termines el asistente. "
-               "Ábrelo en la computadora donde está One TV.")
+NOT_ALLOWED = ("Por seguridad, desde otro aparato hace falta el código que aparece en tu TV. "
+               "Vuelve a abrir el asistente para pedirlo.")
 ONLY_HERE = "Esto solo se puede hacer en la computadora donde está One TV."
 
 
@@ -86,9 +90,105 @@ def is_local(peer, own, host):
     return bool(p.is_loopback or (own and p == _ip(own))) and safe_host(host)
 
 
-def may_change(local, pending, host):
-    """¿Puede usar el asistente? Desde esta computadora siempre; desde otro aparato, mientras falte terminarlo."""
-    return safe_host(host) and bool(local or pending)
+def may_change(local, pending, host, with_code=False):
+    """¿Puede usar el asistente? Desde esta computadora siempre; desde otro aparato, mientras falte terminarlo o si
+    escribió el código que salió en la TV (with_code: su cookie todavía vale)."""
+    return safe_host(host) and bool(local or pending or with_code)
+
+
+# ---------------------------------------------------------------- el código de la TV
+
+CODE_LIFE = 10 * 60        # un código vale 10 minutos
+CODE_TRIES = 5             # intentos por código; después hay que pedir otro
+CODE_GAP = 30              # segundos entre un código y el siguiente (cada uno sale en la TV)
+CODES_PER_HOUR = 10
+PASS_LIFE = 60 * 60        # con el código correcto, ese navegador puede usar el asistente una hora
+MAX_PASSES = 20            # navegadores autorizados a la vez (se olvida el que vence antes)
+COOKIE = "onetv_asistente"
+
+
+def cookie_value(header, name=COOKIE):
+    """El valor de esa cookie en la cabecera Cookie («a=1; onetv_asistente=xyz») o ""."""
+    for part in str(header or "").split(";"):
+        key, _, value = part.strip().partition("=")
+        if key == name:
+            return value.strip().strip('"')
+    return ""
+
+
+def pretty_code(code):
+    """«482913» -> «482 913» (así se lee en la TV y en el registro)."""
+    return f"{code[:3]} {code[3:]}"
+
+
+class CodigoTele:
+    """El código de 6 cifras que sale en la TV para usar el asistente desde otro aparato cuando ya se terminó (por
+    ejemplo, One TV en un NAS sin pantalla). Solo lo ve quien está en la casa frente a la TV. Uno a la vez: pedir otro
+    deja sin valor al anterior; vale CODE_LIFE segundos, CODE_TRIES intentos y una sola vez. Con el código correcto el
+    navegador recibe una cookie con un valor aleatorio que vale PASS_LIFE segundos (solo vive en la memoria del
+    servidor: al reiniciarlo hay que pedir otro código)."""
+
+    def __init__(self, clock=time.monotonic, rng=secrets):
+        self.clock = clock
+        self.rng = rng
+        self.lock = threading.Lock()
+        self.code = None     # {"valor", "hasta", "intentos"}
+        self.asked = []      # cuándo se dio cada código de la última hora
+        self.passes = {}     # valor de la cookie -> hasta cuándo vale
+
+    def new(self):
+        """-> (código, None) o (None, por qué no)."""
+        with self.lock:
+            now = self.clock()
+            self.asked = [t for t in self.asked if now - t < 3600]
+            if self.asked and now - self.asked[-1] < CODE_GAP:
+                wait = max(1, math.ceil(CODE_GAP - (now - self.asked[-1])))
+                return None, f"Espera {wait} segundos para pedir otro código."
+            if len(self.asked) >= CODES_PER_HOUR:
+                return None, "Pediste muchos códigos seguidos. Prueba otra vez en un rato."
+            self.asked.append(now)
+            value = f"{self.rng.randbelow(10 ** 6):06d}"
+            self.code = {"valor": value, "hasta": now + CODE_LIFE, "intentos": 0}
+            return value, None
+
+    def check(self, typed):
+        """-> (valor de la cookie, None) si es el código, o (None, qué decir)."""
+        typed = re.sub(r"[^0-9]", "", str(typed or ""))[:12]   # sin espacios ni guiones
+        if len(typed) != 6:
+            return None, "Escribe los 6 números que aparecen en tu TV."
+        with self.lock:
+            now = self.clock()
+            code = self.code
+            if not code or now > code["hasta"]:
+                self.code = None
+                return None, "Ese código ya no sirve. Pide otro."
+            code["intentos"] += 1
+            if not secrets.compare_digest(typed, code["valor"]):
+                left = CODE_TRIES - code["intentos"]
+                if left <= 0:
+                    self.code = None
+                    return None, "Ese no es el código. Pide otro."
+                return None, f"Ese no es el código. Te queda{'' if left == 1 else 'n'} {left} intento{'' if left == 1 else 's'}."
+            self.code = None   # se usa una sola vez
+            self.passes = {k: v for k, v in self.passes.items() if v > now}
+            while len(self.passes) >= MAX_PASSES:
+                del self.passes[min(self.passes, key=self.passes.get)]
+            token = secrets.token_urlsafe(32)
+            self.passes[token] = now + PASS_LIFE
+            return token, None
+
+    def valid(self, token):
+        """¿Esa cookie todavía deja usar el asistente?"""
+        if not token:
+            return False
+        with self.lock:
+            until = self.passes.get(token)
+            if until is None:
+                return False
+            if self.clock() > until:
+                del self.passes[token]
+                return False
+            return True
 
 
 # ---------------------------------------------------------------- la contraseña del Roku
@@ -527,6 +627,47 @@ class Asistente:
         self.roku_job = {"estado": "nada", "mensaje": ""}
         self._looking = 0.0      # cuándo se buscó el Roku por última vez desde el asistente
         self._outside = (0.0, None)
+        self.codigo = CodigoTele()   # para usarlo desde otro aparato cuando ya se terminó
+
+    # ---------- el código de la TV ----------
+
+    def ask_code(self):
+        """Un código nuevo, a las TV conectadas (el Roku y las TV con Android con One TV abierta) y al registro."""
+        code, error = self.codigo.new()
+        if error:
+            return {"ok": False, "error": error}
+        shown = self._code_to_tvs(code)
+        self.log(f"Código para cambiar la configuración de One TV desde otro aparato: {pretty_code(code)} "
+                 f"(vale {CODE_LIFE // 60} minutos)" + (f"; está en la TV: {', '.join(shown)}" if shown else ""))
+        return {"ok": True, "en_tele": bool(shown), "minutos": CODE_LIFE // 60}
+
+    def _code_to_tvs(self, code):
+        """-> los nombres de las TV a las que llegó."""
+        app = self.app
+        shown = []
+        teles = getattr(app, "teles", None)
+        for tv in teles.android() if teles else []:
+            try:
+                tv.send(cmd="codigo", codigo=code)
+                shown.append(tv.nombre)
+            except OSError:
+                pass
+        roku = getattr(app, "roku", None)
+        if roku is not None and getattr(app, "roku_name", "") and hasattr(roku, "show_code"):
+            try:
+                roku.show_code(code, getattr(app, "server_url", ""))
+                shown.append(app.roku_name)
+            except OSError:
+                pass
+        return shown
+
+    def enter_code(self, typed):
+        """-> (respuesta, valor de la cookie o None)."""
+        token, error = self.codigo.check(typed)
+        if error:
+            return {"ok": False, "error": error}, None
+        self.log("Un aparato escribió el código: puede cambiar la configuración durante una hora.")
+        return {"ok": True}, token
 
     # ---------- estado ----------
 
@@ -556,10 +697,12 @@ class Asistente:
                 pass
         threading.Thread(target=look, daemon=True).start()
 
-    def state(self, allowed, local):
+    def state(self, allowed, local, can_ask=False):
+        """can_ask: sin permiso, ¿puede pedir el código de la TV? (si la página se abrió con una dirección de la casa)"""
         app = self.app
         out = {"ok": True, "permitido": bool(allowed), "local": bool(local), "pendiente": bool(app.welcome_pending())}
         if not allowed:
+            out["codigo"] = bool(can_ask)
             return out
         cfg = app.cfg
         port = cfg["puerto"]

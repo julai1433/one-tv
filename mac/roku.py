@@ -96,6 +96,17 @@ class Roku:
         """Orden para la app ya abierta (cambiar pistas, saltar a un punto...)."""
         self._ecp("POST", "/input?" + urllib.parse.urlencode(params))
 
+    def show_code(self, code, server_url=""):
+        """Muestra en la TV el código para cambiar la configuración desde otro aparato (mac/asistente.py). Si One TV no
+        está abierta, la abre: quien lo pidió está frente a la TV esperándolo."""
+        params = {"cmd": "codigo", "codigo": code}
+        if self.active_app() == "dev":
+            self._ecp("POST", "/input?" + urllib.parse.urlencode(params))
+        else:
+            if server_url:
+                params["server"] = server_url
+            self._ecp("POST", "/launch/dev?" + urllib.parse.urlencode(params))
+
     def player(self):
         """Estado del reproductor según el propio Roku: (estado, posición s, duración s)."""
         xml = self._ecp("GET", "/query/media-player", timeout=2)

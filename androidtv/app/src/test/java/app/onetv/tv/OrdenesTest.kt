@@ -1,6 +1,7 @@
 package app.onetv.tv
 
 import app.onetv.tv.control.Orden
+import app.onetv.tv.control.codigoLegible
 import app.onetv.tv.control.hayVersionNueva
 import app.onetv.tv.control.leerOrden
 import app.onetv.tv.control.leerOrdenes
@@ -40,6 +41,15 @@ class OrdenesTest {
         assertEquals(Orden.Cancion(1), orden("""{"cmd":"song","dir":"1"}"""))
         assertEquals(Orden.Actualiza, orden("""{"cmd":"refresh"}"""))
         assertNull(orden("""{"cmd":"algo-nuevo"}"""))   // un servidor más nuevo: lo que no se entiende se ignora
+    }
+
+    @Test
+    fun el_codigo_para_cambiar_la_configuracion() {
+        assertEquals(Orden.Codigo("048213"), orden("""{"cmd":"codigo","codigo":"048213"}"""))
+        assertNull(orden("""{"cmd":"codigo","codigo":"12345"}"""))      // solo seis cifras
+        assertNull(orden("""{"cmd":"codigo","codigo":"12a456"}"""))
+        assertNull(orden("""{"cmd":"codigo"}"""))
+        assertEquals("048 213", codigoLegible("048213"))
     }
 
     @Test

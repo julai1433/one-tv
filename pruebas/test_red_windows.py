@@ -273,7 +273,8 @@ function Start-Process { param($FilePath, $Verb, $WindowStyle, [switch]$Wait, [s
 @unittest.skipUnless(os.name == "nt", "solo en Windows de verdad")
 class EnWindowsDeVerdad(unittest.TestCase):
     def test_se_puede_revisar_sin_cambiar_nada(self):
-        self.assertIn(winfirewall.status(8765), (True, False))
+        r = winfirewall._run(winfirewall.CHECK)   # si falla, que diga qué contestó Windows
+        self.assertIn(winfirewall.status(8765), (True, False), f"código {r.returncode}: {r.stdout!r} {r.stderr!r}")
 
 
 if __name__ == "__main__":

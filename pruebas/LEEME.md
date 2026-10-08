@@ -37,7 +37,10 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
 - `test_bienvenida.py` — el primer arranque sin preguntas, `/bienvenida`, `cine instalador` y la copia de `config.json`
   del servicio. `test_asistente.py` — el asistente de `/bienvenida` (`mac/asistente.py`): busca carpetas con videos en
   una casa inventada (y en Docker, en `ONE_TV_COMPARTIDAS`), guarda lo elegido sin tocar lo demás, la contraseña del
-  Roku, quién puede usarlo, el explorador (nunca fuera de los lugares permitidos) y un Roku falso con contraseña. `test_red_windows.py` — la regla «One TV» del firewall de Windows y `cine permitir-red`.
+  Roku, quién puede usarlo, el explorador (nunca fuera de los lugares permitidos) y un Roku falso con contraseña.
+  `test_codigo_tele.py` — el código de la TV para usar el asistente desde otro aparato cuando ya se terminó: se genera,
+  llega a un Roku y a una TV con Android falsos (o queda en el registro), vence, pocos intentos, la cookie, y que la
+  primera configuración y esta computadora siguen igual. `test_red_windows.py` — la regla «One TV» del firewall de Windows y `cine permitir-red`.
 
 - `captura_tele.sh [archivo.jpg]` — captura de pantalla de la app del Roku (modo desarrollador). Usa `roku_ip` y `roku_password` de `config.json`; si `roku_ip` está vacío, busca el Roku en la red.
 - `iconos_roku.py` — vuelve a generar los íconos de la app del Roku (`roku/images/icons/*.png`, trazos de Lucide
@@ -58,7 +61,8 @@ No son parte del servicio; sirven para probar cambios sin adivinar.
   a 1280 px (en el puerto dado) y 390 px (en el siguiente), con capturas de cada paso. Arma una casa inventada en una
   carpeta temporal (también la carpeta personal: `HOME` apunta ahí), un Roku falso, una TV con Android que se conecta,
   Windows que bloquea la entrada y OpenSubtitles falso; el servidor escucha solo en 127.0.0.1 y no toca nada real.
-  Revisa cada paso, lo que queda en `config.json`, que nada se salga a lo ancho y la paleta. Sale con código 1 si algo falla.
+  Revisa cada paso, lo que queda en `config.json`, que nada se salga a lo ancho y la paleta; al final, desde «otro
+  aparato», pide el código de la TV (sin TV y con el Roku falso), escribe uno malo y el bueno. Sale con código 1 si algo falla.
 - `web_youtube_continua.py <carpeta> <ancho>` — ajuste de reproducción continua (Fila de reproducción → Ajustes
   generales) y el aviso «Recomendado por YouTube» en el navegador. ⚠ Usa el servidor real: prende y apaga el
   ajuste real y reproduce un video corto; ensucia el historial.

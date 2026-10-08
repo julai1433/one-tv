@@ -37,6 +37,9 @@ sub init()
     m.confirmTimer = m.top.findNode("confirmTimer")
     m.offConfirmTimer = m.top.findNode("offConfirmTimer")
     m.offTimer = m.top.findNode("offTimer")
+    m.code = m.top.findNode("code")
+    m.codeTimer = m.top.findNode("codeTimer")
+    setupCode()
 
     m.lib = invalid
     m.ytHome = invalid        ' /api/yt/home: listas, nuevos, porque viste, seguir viendo, recientes
@@ -110,6 +113,7 @@ sub init()
     m.confirmTimer.observeField("fire", "disarmHide")
     m.offConfirmTimer.observeField("fire", "disarmOffline")
     m.offTimer.observeField("fire", "onOffTick")
+    m.codeTimer.observeField("fire", "hideCode")
     m.offTimer.control = "start"
     showSection(1, true)
 end sub
@@ -128,6 +132,8 @@ sub onLaunchArgs()
         if args.contentId <> invalid then m.pending = args
     end if
     loadLibrary()
+    if args = invalid or args.cmd = invalid then return
+    if args.cmd = "codigo" then showCode(args.codigo)   ' se abrió para mostrar el código (mac/roku.py, show_code)
 end sub
 
 ' Órdenes que llegan con la app abierta: actualizar, reproducir algo, cambiar pistas o saltar.
@@ -153,6 +159,10 @@ sub onInputArgs()
     end if
     if cmd = "seek"
         if m.player.visible and args.t <> invalid then m.player.seekTo = Val(args.t)
+        return
+    end if
+    if cmd = "codigo"   ' el código para cambiar la configuración desde otro aparato (mac/asistente.py)
+        showCode(args.codigo)
         return
     end if
     if args.contentId = invalid then return
@@ -550,7 +560,7 @@ sub showOffline()
     for each view in [m.rows, m.grid, m.search, m.pageRows, m.pageGrid]
         view.visible = false
     end for
-    if not m.menu.expanded and not m.detail.visible and not m.player.visible then m.offline.setFocus(true)
+    if not m.menu.expanded and not m.detail.visible and not m.player.visible and not m.code.visible then m.offline.setFocus(true)
 end sub
 
 sub hideOffline()
@@ -640,6 +650,10 @@ end sub
 
 function onKeyEvent(key as String, press as Boolean) as Boolean
     if not press then return false
+    if m.code.visible   ' el código de la TV: OK o Atrás lo quitan; lo demás no hace nada mientras se ve
+        if key = "OK" or key = "back" then hideCode()
+        return true
+    end if
     if m.player.visible or m.detail.visible or m.mosaic.visible or m.picker.visible then return false
     if m.help.visible
         if key = "back" then hideHelp()
@@ -671,6 +685,61 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
     end if
     return false
 end function
+
+' ---------- el código para cambiar la configuración desde otro aparato ----------
+
+sub setupCode()
+    m.top.findNode("codeScrim").color = m.t.scrim
+    m.top.findNode("codeBg").color = m.t.raise2
+    value = m.top.findNode("codeValue")
+    value.font = makeFont(110, "black")
+    value.color = m.t.lime
+    note = m.top.findNode("codeNote")
+    note.font = makeFont(38)
+    note.color = m.t.text
+    hint = m.top.findNode("codeHint")
+    hint.font = makeFont(27)
+    hint.color = m.t.muted
+end sub
+
+' Lo pide la web (el asistente, desde otro aparato): el código grande, encima de todo, con el foco para que OK o Atrás
+' lo quiten. Solo seis cifras; otra cosa no se muestra.
+sub showCode(code as Dynamic)
+    if code = invalid then return
+    code = code.ToStr()
+    if not CreateObject("roRegex", "^[0-9]{6}$", "").IsMatch(code) then return
+    m.top.findNode("codeValue").text = Left(code, 3) + " " + Mid(code, 4)
+    m.player.covered = true   ' el reproductor no toma el foco ni ofrece «saltar intro» mientras se ve
+    m.code.visible = true
+    m.code.setFocus(true)
+    m.codeTimer.control = "stop"
+    m.codeTimer.control = "start"
+end sub
+
+' Se quita (solo, o con OK o Atrás) y el foco vuelve a lo que se veía.
+sub hideCode()
+    if not m.code.visible then return
+    hadFocus = m.code.hasFocus()
+    m.code.visible = false
+    m.codeTimer.control = "stop"
+    if not m.picker.visible then m.player.covered = false
+    if not hadFocus then return   ' algo más ya tomó el foco
+    if m.picker.visible
+        m.picker.setFocus(true)
+    else if m.player.visible
+        m.player.refocus = true
+    else if m.mosaic.visible
+        m.mosaic.refocus = true
+    else if m.detail.visible
+        m.detail.setFocus(true)
+    else if m.help.visible
+        m.help.setFocus(true)
+    else if m.menu.expanded
+        m.menu.setFocus(true)
+    else
+        focusContent()
+    end if
+end sub
 
 ' ---------- avisos breves ----------
 

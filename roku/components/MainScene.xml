@@ -52,6 +52,16 @@
     <Mosaic id="mosaic" visible="false" />
     <!-- «Ver con otro», «Agregar», «Cambiar por»: la lista para elegir, encima de todo (Multi.brs). -->
     <MultiPicker id="picker" visible="false" />
+    <!-- El código para cambiar la configuración desde otro aparato (lo pide el asistente de la web): encima de todo,
+         se quita solo o con OK o Atrás. -->
+    <Group id="code" visible="false">
+      <Rectangle id="codeScrim" width="1920" height="1080" />
+      <Rectangle id="codeBg" translation="[432, 300]" width="1056" height="480" />
+      <Label id="codeValue" translation="[432, 360]" width="1056" horizAlign="center" />
+      <Label id="codeNote" translation="[512, 540]" width="896" horizAlign="center" wrap="true" maxLines="2"
+             text="Código para cambiar la configuración de One TV desde otro aparato" />
+      <Label id="codeHint" translation="[432, 690]" width="1056" horizAlign="center" text="OK o Atrás: cerrar" />
+    </Group>
     <Timer id="retryTimer" duration="5" repeat="false" />
     <Timer id="toastTimer" duration="7" repeat="false" />
     <!-- «Ocultar canal» pide un segundo OK: pasado este tiempo, el botón vuelve a su texto. -->
@@ -59,5 +69,7 @@
     <!-- Guardar sin conexión: el segundo OK para quitar un guardado, y la lectura de lo guardado cada 3 s mientras importa. -->
     <Timer id="offConfirmTimer" duration="6" repeat="false" />
     <Timer id="offTimer" duration="3" repeat="true" />
+    <!-- El código de arriba se quita solo pasado este tiempo (sigue sirviendo unos minutos más en la web). -->
+    <Timer id="codeTimer" duration="90" repeat="false" />
   </children>
 </component>

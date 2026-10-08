@@ -199,10 +199,10 @@ def make_handler(app):
             if self.command != "HEAD":
                 self.wfile.write(body)
 
-        def _json(self, data, code=200):
+        def _json(self, data, code=200, headers=None):
             if "Roku" in self.headers.get("User-Agent", ""):   # las letras del Roku no tienen emojis: saldrían cuadritos
                 data = without_emoji(data)
-            self._send(code, json.dumps(data, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+            self._send(code, json.dumps(data, ensure_ascii=False).encode(), "application/json; charset=utf-8", headers)
 
         def _file(self, path, ctype=None, cache=False, headers=None):
             """Entrega un archivo respetando 'Range' (el Roku pide la película a trozos)."""
@@ -417,24 +417,31 @@ def make_handler(app):
         # ---------- el asistente (/bienvenida): quién puede usarlo, en mac/asistente.py ----------
 
         def _wizard_access(self):
-            """(¿desde esta computadora?, ¿puede usar el asistente?) de quien pide."""
+            """(¿desde esta computadora?, ¿puede usar el asistente?) de quien pide. Desde otro aparato, con la cookie
+            que dio el código de la TV (POST /api/asistente/entrar) también puede."""
             host = self.headers.get("Host", "")
             try:
                 own = self.connection.getsockname()[0]
             except (OSError, AttributeError, IndexError):
                 own = ""
             local = asistente.is_local(self.client_address[0], own, host)
-            return local, asistente.may_change(local, _welcome_pending(app), host)
+            w = getattr(app, "asistente", None)
+            with_code = bool(w) and w.codigo.valid(asistente.cookie_value(self.headers.get("Cookie")))
+            return local, asistente.may_change(local, _welcome_pending(app), host, with_code)
+
+        def _not_allowed(self):
+            # «pedir_codigo»: la página vuelve a pedir el código de la TV (por ejemplo, porque pasó la hora)
+            return self._json({"ok": False, "error": asistente.NOT_ALLOWED, "pedir_codigo": True}, 403)
 
         def _wizard_get(self, name):
             w = getattr(app, "asistente", None)
             if w is None:
                 return self._send(404, b"no encontrado")
             local, allowed = self._wizard_access()
-            if name == "estado":   # sin permiso solo dice eso (la página explica por qué)
-                return self._json(w.state(allowed, local))
+            if name == "estado":   # sin permiso solo dice eso (la página explica por qué y ofrece el código de la TV)
+                return self._json(w.state(allowed, local, asistente.safe_host(self.headers.get("Host", ""))))
             if not allowed:
-                return self._json({"ok": False, "error": asistente.NOT_ALLOWED}, 403)
+                return self._not_allowed()
             q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
             if name == "carpetas":
                 return self._json(w.folders())
@@ -451,9 +458,18 @@ def make_handler(app):
             if w is None:
                 return self._send(404, b"no encontrado")
             body = body if isinstance(body, dict) else {}
+            if name in ("codigo", "entrar"):   # el código de la TV: desde cualquier aparato, con una dirección de la casa
+                if not asistente.safe_host(self.headers.get("Host", "")):
+                    return self._not_allowed()
+                if name == "codigo":   # mostrar un código nuevo en la TV
+                    return self._json(w.ask_code())
+                out, token = w.enter_code(body.get("codigo"))   # {codigo}: el que se escribió
+                cookie = (f"{asistente.COOKIE}={token}; Path=/; Max-Age={asistente.PASS_LIFE}; HttpOnly; "
+                          "SameSite=Strict") if token else None
+                return self._json(out, headers={"Set-Cookie": cookie} if cookie else None)
             local, allowed = self._wizard_access()
             if not allowed:
-                return self._json({"ok": False, "error": asistente.NOT_ALLOWED}, 403)
+                return self._not_allowed()
             if name in ("permitir-red", "fuera") and not local:   # abren ventanas o cambian cosas de esta computadora
                 return self._json({"ok": False, "error": asistente.ONLY_HERE}, 403)
             if name == "carpetas":   # {carpetas: [ruta…]}
@@ -815,7 +831,9 @@ def make_handler(app):
                     done = _bool(body.get("hecha", True))
                     local, allowed = self._wizard_access()
                     if not (allowed if done else local):   # volver a abrirlo para todos: solo desde esta computadora
-                        return self._json({"ok": False, "error": asistente.NOT_ALLOWED if done else asistente.ONLY_HERE}, 403)
+                        if done:
+                            return self._not_allowed()
+                        return self._json({"ok": False, "error": asistente.ONLY_HERE}, 403)
                     return self._json(app.welcome_done(done))
                 if path.startswith("/api/asistente/"):
                     return self._wizard_post(path[len("/api/asistente/"):], body)

@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.zIndex
 import app.onetv.tv.Conexion
 import app.onetv.tv.Estado
@@ -45,6 +46,7 @@ import app.onetv.tv.Vacio
 import app.onetv.tv.VistaBuscar
 import app.onetv.tv.VistaCuadricula
 import app.onetv.tv.VistaFilas
+import app.onetv.tv.control.codigoLegible
 import app.onetv.tv.opcionesElegir
 import app.onetv.tv.data.marquee
 
@@ -77,6 +79,19 @@ fun AppUI(e: Estado, video: @Composable () -> Unit) {
                 Texto(e.aviso, font(32, color = if (e.avisoError) C.guindaLight else C.text), maxLines = 2)
             }
         }
+        if (e.codigo.isNotEmpty()) Box(Modifier.fillMaxSize().zIndex(8f)) { CodigoUI(e.codigo) }
+    }
+}
+
+/** El código para cambiar la configuración desde otro aparato (como el del Roku, MainScene.xml): encima de todo. */
+@Composable
+fun CodigoUI(codigo: String) {
+    Box(Modifier.fillMaxSize().background(C.scrim)) {
+        Box(Modifier.offset(432.u, 300.u).size(1056.u, 480.u).background(C.raise2))
+        Texto(codigoLegible(codigo), font(110, Face.BLACK, C.lime), Modifier.offset(432.u, 360.u).width(1056.u), align = TextAlign.Center)
+        Texto("Código para cambiar la configuración de One TV desde otro aparato", font(38),
+            Modifier.offset(512.u, 540.u).width(896.u), maxLines = 2, align = TextAlign.Center)
+        Texto("OK o Atrás: cerrar", font(27, color = C.muted), Modifier.offset(432.u, 690.u).width(1056.u), align = TextAlign.Center)
     }
 }
 
